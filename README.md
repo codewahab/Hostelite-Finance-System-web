@@ -18,6 +18,24 @@ The Hostelite Finance System provides a simple way to organize personal finances
 * **Money Owed:** Track money you owe to others and money others owe you.
 * **Split Expenses:** Divide shared expenses among friends.
 * **Responsive Interface:** Use the application on different screen sizes.
+## Screenshots
+
+### Dashboard
+
+![Hostelite Finance System Dashboard](screenshots/dashboard.png)
+
+### Expense Management
+
+![Expense Management Page](screenshots/expense.png)
+
+### Reports — Overview
+
+![Reports Page - Overview](screenshots/reports-top.png)
+
+### Reports — Additional Charts
+
+![Reports Page - Additional Charts](screenshots/reports-bottom.png)
+
 
 ## Technologies Used
 
