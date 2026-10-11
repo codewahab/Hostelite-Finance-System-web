@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Hostelite Finance System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    {% include 'nav.html' %}
+
+    <main class="container">
+
+        <div class="header">
+            <h1>Hostel Finance Dashboard</h1>
+            <p>
+                Budget Period: <strong>{{ cycle_start }}</strong> to <strong>{{ cycle_end }}</strong>
+                &bull; <strong>{{ days_remaining }}</strong> day{% if days_remaining != 1 %}s{% endif %} left
+            </p>
+        </div>
+
+        <!-- Low Funds & Over Budget Alert Banner -->
+        {% if is_over_budget or is_low_funds %}
+            <div class="alert-warning low-funds-banner">
+                <div class="low-funds-text">
+                    {% if is_over_budget %}
+                        <strong>Budget Alert:</strong> You have spent <strong>{{ total_expense | rupees }}</strong>, which is <strong>{{ (remaining * -1) | rupees }}</strong> over your budget of {{ allowance | rupees }}!
+                    {% else %}
+                        <strong>Low Funds Warning:</strong> {{ low_funds_message }}
+                    {% endif %}
+                </div>
+
+                {% if top_debtors|length > 0 %}
+                    <div class="low-funds-debtors">
+                        <span class="debtors-hint">Recover cash flow by collecting pending debts:</span>
+                        <div class="debtors-tag-list">
+                            {% for d in top_debtors %}
+                                <span class="debtor-tag"><strong>{{ d.name }}</strong> owes you {{ d.amount | rupees }}</span>
+                            {% endfor %}
+                        </div>
+                        <a href="/money-owed" class="btn btn-sm btn-primary" style="margin-top: 8px;">Open Money Owed & Send Reminders</a>
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        <!-- Primary Budget & Cash Cards -->
+        <div class="dashboard-grid">
+
+            <!-- Card 1: Allowance -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Allowance</h3>
+                    <a href="/set-allowance" class="card-action">{% if allowance > 0 %}Edit{% else %}+ Set{% endif %}</a>
+                </div>
+                {% if allowance > 0 %}
+                    <p class="stat-number">{{ allowance | rupees }}</p>
+                    <span class="card-subtext">Received: {{ received_date if received_date else '1st of month' }}</span>
+                {% else %}
+                    <p class="stat-number text-muted">Not Set</p>
+                    <span class="card-subtext"><a href="/set-allowance">Set monthly budget</a></span>
+                {% endif %}
+            </div>
+
+            <!-- Card 2: Spent in Cycle -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Cycle Spent</h3>
+                    <a href="/expenses" class="card-action">View All</a>
+                </div>
+                <p class="stat-number">{{ total_expense | rupees }}</p>
+                <span class="card-subtext">
+                    {% if allowance > 0 %}
+                        {{ percentage_spent }}% of allowance spent
+                    {% else %}
+                        All-time: {{ all_time_total | rupees }}
+                    {% endif %}
+                </span>
+            </div>
+
+            <!-- Card 3: Remaining Budget -->
+            <div class="card {% if is_over_budget %}card-danger{% endif %}">
+                <div class="card-header">
+                    <h3>Remaining Budget</h3>
+                </div>
+                {% if allowance > 0 %}
+                    {% if is_over_budget %}
+                        <p class="stat-number text-danger">{{ remaining | rupees }}</p>
+                        <span class="card-subtext text-danger">Over budget</span>
+                    {% else %}
+                        <p class="stat-number text-success">{{ remaining | rupees }}</p>
+                        <span class="card-subtext">{{ (100 - percentage_spent)|round(1) }}% left for {{ days_remaining }} days</span>
+                    {% endif %}
+                {% else %}
+                    <p class="stat-number text-muted">Rs. 0</p>
+                    <span class="card-subtext"><a href="/set-allowance">Set allowance to track</a></span>
+                {% endif %}
+            </div>
+
+            <!-- Card 4: Available Cash (Wallet / Cash Flow) -->
+            <div class="card {% if available_cash < 0 %}card-danger{% endif %}">
+                <div class="card-header">
+                    <h3>Available Cash</h3>
+                </div>
+                <p class="stat-number {% if available_cash < 0 %}text-danger{% elif available_cash > 0 %}text-primary{% else %}text-muted{% endif %}">
+                    {{ available_cash | rupees }}
+                </p>
+                <span class="card-subtext">
+                    Cash in hand
+                    {% if others_owe_you > 0 or you_owe_others > 0 %}
+                        <span title="Budget {{ remaining | rupees }} {% if you_owe_others > 0 %}+ {{ you_owe_others | rupees }} borrowed{% endif %} {% if others_owe_you > 0 %}- {{ others_owe_you | rupees }} lent{% endif %}">
+                            (incl. borrowed/lent)
+                        </span>
+                    {% else %}
+                        (equals budget)
+                    {% endif %}
+                </span>
+            </div>
+
+            <!-- Card 5: Daily Safe Limit -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Daily Safe Limit</h3>
+                </div>
+                {% if allowance > 0 %}
+                    {% if is_over_budget %}
+                        <p class="stat-number text-danger">Rs. 0</p>
+                        <span class="card-subtext text-danger">Budget exceeded</span>
+                    {% else %}
+                        <p class="stat-number text-primary">{{ daily_limit | rupees }} / day</p>
+                        <span class="card-subtext">Safe spending for {{ days_remaining }} days</span>
+                    {% endif %}
+                {% else %}
+                    <p class="stat-number text-muted">-</p>
+                    <span class="card-subtext">Set allowance to calculate</span>
+                {% endif %}
+            </div>
+
+        </div>
+
+        <!-- Quick Add Expense Card (5-Second Experience) -->
+        <div class="card quick-add-card">
+            <div class="card-header">
+                <h3>Quick Add Expense</h3>
+                <span class="card-subtext">Log an expense in 5 seconds</span>
+            </div>
+            <form method="POST" action="/quick-add-expense" class="quick-add-form">
+                <div class="quick-add-grid">
+                    <div class="form-group quick-field">
+                        <label for="qa-amount">Amount (Rs.) *</label>
+                        <input type="number" id="qa-amount" name="amount" step="any" min="0.01" placeholder="e.g. 150" required>
+                    </div>
+
+                    <div class="form-group quick-field">
+                        <label for="qa-category">Category *</label>
+                        <input type="text" id="qa-category" name="category" placeholder="e.g. Chai, Mess, Bus" required>
+                    </div>
+
+                    <div class="form-group quick-field">
+                        <label for="qa-payment">Payment Method</label>
+                        <select id="qa-payment" name="payment_method">
+                            <option value="Cash" {% if last_payment_method == 'Cash' %}selected{% endif %}>Cash</option>
+                            <option value="Easypaisa" {% if last_payment_method == 'Easypaisa' %}selected{% endif %}>Easypaisa</option>
+                            <option value="JazzCash" {% if last_payment_method == 'JazzCash' %}selected{% endif %}>JazzCash</option>
+                            <option value="Bank / Card" {% if last_payment_method == 'Bank / Card' %}selected{% endif %}>Bank / Card</option>
+                            <option value="Other" {% if last_payment_method == 'Other' %}selected{% endif %}>Other</option>
+                        </select>
+                    </div>
+
+                    <div class="quick-add-submit">
+                        <button type="submit" class="btn btn-primary">+ Add Expense</button>
+                    </div>
+                </div>
+
+                <!-- Quick Category Click Chips (Click to fill text input, Category remains normal text input!) -->
+                <div class="quick-chips-row">
+                    <span class="chips-label">Quick tags:</span>
+                    {% for cat in quick_categories %}
+                        <button type="button" class="category-chip" onclick="fillCategory('{{ cat }}')">{{ cat }}</button>
+                    {% endfor %}
+                </div>
+            </form>
+        </div>
+
+        <!-- Quick Summary for Money Owed -->
+        <div class="card money-owed-dashboard-card">
+            <div class="card-header">
+                <h3>Money Owed</h3>
+                <a href="/money-owed" class="card-action">Open Money Owed</a>
+            </div>
+            <div class="money-owed-summary-row">
+                <div class="summary-metric">
+                    <span class="card-subtext">Others Owe You</span>
+                    <p class="stat-number text-success">{{ others_owe_you | rupees }}</p>
+                </div>
+                <div class="summary-metric">
+                    <span class="card-subtext">You Owe Others</span>
+                    <p class="stat-number text-danger">{{ you_owe_others | rupees }}</p>
+                </div>
+                <div class="summary-metric">
+                    <span class="card-subtext">Pending Records</span>
+                    <p class="stat-number">{{ pending_records_count }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Expenses Section -->
+        <div class="section-header">
+            <div>
+                <h2>Recent Expenses</h2>
+                <small class="text-muted">Showing latest {{ recent_expenses|length }} of {{ expenses|length }} expenses</small>
+            </div>
+            <div class="header-actions">
+                <a href="/expenses" class="btn btn-secondary btn-sm">Search & View All</a>
+                <a href="/add-expense" class="btn btn-primary btn-sm">+ Full Form</a>
+            </div>
+        </div>
+
+        <div class="expenses">
+            {% if recent_expenses|length == 0 %}
+                <div class="empty-state">
+                    <p>No expenses recorded yet.</p>
+                    <a href="/add-expense" class="btn btn-primary">+ Add First Expense</a>
+                </div>
+            {% else %}
+                {% for expense in recent_expenses %}
+                    <div class="expense-card">
+                        <div class="expense-main">
+                            <div class="expense-title-row">
+                                <h3 class="expense-name">{{ expense["name"] }}</h3>
+                                <span class="category-badge">{{ expense["category"] }}</span>
+                                <span class="payment-badge">{{ expense.get("payment_method", "Cash") }}</span>
+                            </div>
+                            <p class="expense-meta">Date: {{ expense["date"] }}</p>
+                            {% if expense["note"] and expense["note"] != "-" %}
+                                <p class="expense-note">Note: {{ expense["note"] }}</p>
+                            {% endif %}
+                        </div>
+
+                        <div class="expense-right">
+                            <div class="expense-amount">{{ expense["amount"] | rupees }}</div>
+                            <div class="expense-actions">
+                                <a href="/edit-expense/{{ loop.index0 }}" class="btn btn-sm btn-edit">Edit</a>
+                                <a href="/delete-expense/{{ loop.index0 }}" class="btn btn-sm btn-delete" onclick="return confirm('Are you sure you want to delete this expense?');">Delete</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+    </main>
+
+    <script>
+        function fillCategory(name) {
+            var catInput = document.getElementById('qa-category');
+            if (catInput) {
+                catInput.value = name;
+                catInput.focus();
+            }
+        }
+    </script>
+
+</body>
+</html>

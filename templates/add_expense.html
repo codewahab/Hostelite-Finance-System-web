@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Expense - Hostelite Finance System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    {% include 'nav.html' %}
+
+    <main class="container">
+
+        <div class="page-header">
+            <h1>Add New Expense</h1>
+            <p>Record a new hostel or personal expense</p>
+        </div>
+
+        {% if error %}
+            <div class="alert-error">
+                {{ error }}
+            </div>
+        {% endif %}
+
+        <div class="card form-card">
+            <form method="POST" action="/add-expense">
+
+                <div class="form-group">
+                    <label for="name">Expense Name *</label>
+                    <input type="text" id="name" name="name" placeholder="e.g. Mess Dinner, Chai, Shampoo, Notebook" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="category">Category *</label>
+                    <input type="text" id="category" name="category" placeholder="e.g. Mess / Food, Laundry, Snacks, Transport" required>
+                    <small class="form-hint">Type any category that fits your hostel life.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="amount">Amount (Rs.) *</label>
+                    <input type="number" id="amount" name="amount" step="any" min="0.01" placeholder="e.g. 250" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="payment_method">Payment Method *</label>
+                    <select id="payment_method" name="payment_method" required>
+                        <option value="Cash" selected>Cash</option>
+                        <option value="Easypaisa">Easypaisa</option>
+                        <option value="JazzCash">JazzCash</option>
+                        <option value="Bank / Card">Bank / Card</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="date">Date *</label>
+                    <input type="date" id="date" name="date" value="{{ today }}" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="note">Note (Optional)</label>
+                    <textarea id="note" name="note" rows="3" placeholder="e.g. Split with roommates, paid from pocket"></textarea>
+                </div>
+
+                <div class="form-buttons">
+                    <button type="submit" class="btn btn-primary">Save Expense</button>
+                    <a href="/expenses" class="btn btn-secondary">Cancel</a>
+                </div>
+
+            </form>
+        </div>
+
+    </main>
+
+</body>
+</html>

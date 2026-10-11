@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Split Bill - Hostelite Finance System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    {% include 'nav.html' %}
+
+    <main class="container">
+
+        <div class="page-header-row">
+            <div>
+                <h1>Group Bill & Expense Splitter</h1>
+                <p>Easily calculate equal or custom splits with roommates and see who owes whom</p>
+            </div>
+        </div>
+
+        {% if error %}
+            <div class="alert-error">
+                {{ error }}
+            </div>
+        {% endif %}
+
+        {% if sync_message %}
+            <div class="alert-success">
+                {{ sync_message }}
+            </div>
+        {% endif %}
+
+        <!-- Split Calculator Form -->
+        <div class="card form-card-wide">
+            <div class="card-header">
+                <h3>Calculate a New Split</h3>
+            </div>
+            <form method="POST" action="/split-expense" class="ledger-form">
+                <div class="form-grid-3">
+                    <div class="form-group">
+                        <label for="title">Expense Title *</label>
+                        <input type="text" id="title" name="title" placeholder="e.g. Mess Dinner, Room WiFi, Groceries" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="total_amount">Total Bill Amount (Rs.) *</label>
+                        <input type="number" id="total_amount" name="total_amount" step="any" min="0.01" placeholder="e.g. 3000" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="payer">Who Paid the Full Bill? *</label>
+                        <input type="text" id="payer" name="payer" value="You" placeholder="e.g. You, Ali" required>
+                    </div>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label for="split_type">Split Type *</label>
+                        <select id="split_type" name="split_type" onchange="toggleSplitInputs()">
+                            <option value="equal" selected>Equal Split (Divide equally)</option>
+                            <option value="custom">Custom Amounts (Different shares)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="date">Date *</label>
+                        <input type="date" id="date" name="date" value="{{ today }}" required>
+                    </div>
+                </div>
+
+                <!-- Equal Split Input -->
+                <div id="equal-inputs" class="form-group">
+                    <label for="people">People Names (Comma separated)</label>
+                    <input type="text" id="people" name="people" placeholder="e.g. You, Ali, Ahmed" value="You, Roommate 1, Roommate 2">
+                    <small class="form-hint">Enter the names of everyone sharing this bill separated by commas.</small>
+                </div>
+
+                <!-- Custom Split Input -->
+                <div id="custom-inputs" class="form-group" style="display: none;">
+                    <label for="custom_breakdown">Custom Shares (One per line: "Name: Amount")</label>
+                    <textarea id="custom_breakdown" name="custom_breakdown" rows="4" placeholder="Ali: 500&#10;Ahmed: 1000&#10;You: 1500"></textarea>
+                    <small class="form-hint">Format each line as Name: Amount (e.g. Ali: 500).</small>
+                </div>
+
+                <!-- Automatic Sync & Accounting Settings -->
+                <div class="sync-settings-box">
+                    <div class="card-header" style="margin-bottom: 6px;">
+                        <h3 style="font-size: 13px; color: #1e3a8a;">Automatic Sync & Accounting (No Double-Counting)</h3>
+                    </div>
+                    <div class="form-grid-2">
+                        <div class="form-group form-checkbox" style="margin-bottom: 6px;">
+                            <label>
+                                <input type="checkbox" name="sync_money_owed" value="yes" checked>
+                                <strong>Automatically record debts in Money Owed</strong>
+                            </label>
+                            <small class="form-hint">Creates pending debts so you can track and collect later.</small>
+                        </div>
+
+                        <div class="form-group form-checkbox" style="margin-bottom: 6px;">
+                            <label>
+                                <input type="checkbox" name="sync_expense" value="yes" checked>
+                                <strong>Record only your personal share in Expenses</strong>
+                            </label>
+                            <small class="form-hint">Roommates' shares won't inflate your personal living expenses.</small>
+                        </div>
+                    </div>
+
+                    <div class="form-grid-2" style="margin-top: 8px;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="expense_category">Category for Your Share</label>
+                            <input type="text" id="expense_category" name="expense_category" value="Food / Mess" placeholder="e.g. Food / Mess, Utilities">
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="payment_method">Payment Method Used</label>
+                            <select id="payment_method" name="payment_method">
+                                <option value="Cash" selected>Cash</option>
+                                <option value="Easypaisa">Easypaisa</option>
+                                <option value="JazzCash">JazzCash</option>
+                                <option value="Bank / Card">Bank / Card</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group form-checkbox" style="margin-top: 12px;">
+                    <label>
+                        <input type="checkbox" name="save_history" value="yes" checked>
+                        Save this split calculation to history
+                    </label>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Calculate & Sync Split</button>
+            </form>
+        </div>
+
+        <!-- Calculation Result -->
+        {% if result %}
+            <div class="card result-card">
+                <div class="card-header">
+                    <h2>Split Result: {{ result['title'] }}</h2>
+                    <span class="badge badge-settled">{{ result['split_type']|capitalize }} Split</span>
+                </div>
+
+                <p><strong>Total Bill:</strong> {{ result['total_amount'] | rupees }} &bull; <strong>Paid by:</strong> {{ result['payer'] }}</p>
+
+                <div class="breakdown-grid">
+                    {% for item in result['breakdown'] %}
+                        <div class="breakdown-card {% if item['is_payer'] %}payer-card{% endif %}">
+                            <h4>{{ item['name'] }}</h4>
+                            <p class="stat-number">{{ item['share'] | rupees }}</p>
+                            <span class="card-subtext">
+                                {% if item['is_payer'] %}Paid the total bill{% else %}Share of the bill{% endif %}
+                            </span>
+                            {% if not item['is_payer'] and item['share'] > 0 %}
+                                <form method="POST" action="/split-expense/add-to-money-owed" style="margin-top: 8px;">
+                                    <input type="hidden" name="person" value="{{ item['name'] }}">
+                                    <input type="hidden" name="amount" value="{{ item['share'] }}">
+                                    <input type="hidden" name="type" value="they_owe_me">
+                                    <input type="hidden" name="reason" value="Split: {{ result['title'] }}">
+                                    <input type="hidden" name="date" value="{{ result['date'] }}">
+                                    <button type="submit" class="btn btn-sm btn-outline">+ Re-add to Money Owed</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="owes-box">
+                    <h3>Who Owes Whom:</h3>
+                    <ul>
+                        {% for line in result['who_owes_whom'] %}
+                            <li><strong>{{ line }}</strong></li>
+                        {% else %}
+                            <li>All settled or only 1 person paid their own share.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Splits History -->
+        <div class="section-header">
+            <h2>Saved Splits History ({{ splits_history|length }})</h2>
+        </div>
+
+        <div class="expenses">
+            {% if splits_history|length == 0 %}
+                <div class="empty-state">
+                    <p>No saved splits in history yet.</p>
+                </div>
+            {% else %}
+                {% for s in splits_history %}
+                    <div class="expense-card">
+                        <div class="expense-main">
+                            <div class="expense-title-row">
+                                <h3 class="expense-name">{{ s["title"] }}</h3>
+                                <span class="badge badge-owe-you">{{ s["split_type"]|capitalize }}</span>
+                            </div>
+                            <p class="expense-meta">Date: {{ s["date"] }} &bull; Paid by: <strong>{{ s["payer"] }}</strong></p>
+                            <div class="split-history-lines">
+                                {% for line in s.get("who_owes_whom", []) %}
+                                    <span class="history-tag">{{ line }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="expense-right">
+                            <div class="expense-amount">{{ s["total_amount"] | rupees }}</div>
+                            <div class="expense-actions">
+                                <a href="/split-expense/delete/{{ s['id'] }}" class="btn btn-sm btn-delete" onclick="return confirm('Delete this split?');">Delete</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+    </main>
+
+    <script>
+        function toggleSplitInputs() {
+            var splitType = document.getElementById("split_type").value;
+            var equalDiv = document.getElementById("equal-inputs");
+            var customDiv = document.getElementById("custom-inputs");
+            if (splitType === "equal") {
+                equalDiv.style.display = "block";
+                customDiv.style.display = "none";
+            } else {
+                equalDiv.style.display = "none";
+                customDiv.style.display = "block";
+            }
+        }
+    </script>
+
+</body>
+</html>

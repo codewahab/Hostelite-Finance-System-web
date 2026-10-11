@@ -1,0 +1,19 @@
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# Private financial data
+allowance.json
+expenses.json
+borrowed_lent.json
+friends.json
+money_owed.json
+splits.json
+
+# Environment secrets
+.env

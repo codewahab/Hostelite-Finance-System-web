@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Record - Money Owed - Hostelite Finance System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    {% include 'nav.html' %}
+
+    <main class="container">
+
+        <div class="page-header">
+            <h1>Edit Money Owed Record</h1>
+            <p>Update transaction details, direction, or settlement status</p>
+        </div>
+
+        {% if error %}
+            <div class="alert-error">
+                {{ error }}
+            </div>
+        {% endif %}
+
+        <div class="card form-card">
+            <form method="POST" action="/money-owed/edit/{{ record['id'] }}">
+
+                <div class="form-group">
+                    <label for="person">Person's Name *</label>
+                    <input type="text" id="person" name="person" value="{{ record['person'] }}" placeholder="e.g. Ali, Hamza, Saad" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="type">Direction / Type *</label>
+                    <select id="type" name="type" required>
+                        <option value="they_owe_me" {% if record['type'] == 'they_owe_me' %}selected{% endif %}>They owe me (I paid or lent money)</option>
+                        <option value="i_owe_them" {% if record['type'] == 'i_owe_them' %}selected{% endif %}>I owe them (They paid or I borrowed money)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="amount">Amount (Rs.) *</label>
+                    <input type="number" id="amount" name="amount" value="{{ record['amount'] }}" step="any" min="0.01" placeholder="e.g. 500" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="status">Status *</label>
+                    <select id="status" name="status" required>
+                        <option value="Pending" {% if record['status'] == 'Pending' %}selected{% endif %}>Pending</option>
+                        <option value="Settled" {% if record['status'] == 'Settled' %}selected{% endif %}>Settled</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="date">Date *</label>
+                    <input type="date" id="date" name="date" value="{{ record['date'] }}" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="reason">Reason / Purpose</label>
+                    <input type="text" id="reason" name="reason" value="{{ record['reason'] }}" placeholder="e.g. Dinner share, WiFi bill, Loan">
+                </div>
+
+                <div class="form-group">
+                    <label for="note">Optional Note</label>
+                    <textarea id="note" name="note" rows="3" placeholder="Additional details or repayment notes">{{ record['note'] }}</textarea>
+                </div>
+
+                <div class="form-buttons">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <a href="/money-owed" class="btn btn-secondary">Cancel</a>
+                </div>
+
+            </form>
+        </div>
+
+    </main>
+
+</body>
+</html>

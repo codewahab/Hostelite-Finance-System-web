@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expenses - Hostelite Finance System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    {% include 'nav.html' %}
+
+    <main class="container">
+
+        <div class="page-header-row">
+            <div>
+                <h1>Expense Tracker</h1>
+                <p>Manage, search, and filter all your hostel expenses</p>
+            </div>
+            <a href="/add-expense" class="btn btn-primary">+ Add Expense</a>
+        </div>
+
+        <!-- Search & Filter Card -->
+        <div class="card filter-card">
+            <form method="GET" action="/expenses" class="filter-form">
+                <div class="filter-grid">
+                    <div class="form-group">
+                        <label for="q">Search Keyword</label>
+                        <input type="text" id="q" name="q" value="{{ q }}" placeholder="Search name, note...">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="category">Category</label>
+                        <input type="text" id="category" name="category" value="{{ category_filter }}" placeholder="e.g. Mess, Snacks, Laundry">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="payment_method">Payment Method</label>
+                        <select id="payment_method" name="payment_method">
+                            <option value="All" {% if not payment_filter or payment_filter == 'All' %}selected{% endif %}>All Methods</option>
+                            <option value="Cash" {% if payment_filter == 'Cash' %}selected{% endif %}>Cash</option>
+                            <option value="Easypaisa" {% if payment_filter == 'Easypaisa' %}selected{% endif %}>Easypaisa</option>
+                            <option value="JazzCash" {% if payment_filter == 'JazzCash' %}selected{% endif %}>JazzCash</option>
+                            <option value="Bank / Card" {% if payment_filter == 'Bank / Card' %}selected{% endif %}>Bank / Card</option>
+                            <option value="Other" {% if payment_filter == 'Other' %}selected{% endif %}>Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="date">Specific Date</label>
+                        <input type="date" id="date" name="date" value="{{ date_filter }}">
+                    </div>
+                </div>
+
+                <div class="filter-actions">
+                    <button type="submit" class="btn btn-primary btn-sm">Apply Filter</button>
+                    {% if q or category_filter or (payment_filter and payment_filter != 'All') or date_filter %}
+                        <a href="/expenses" class="btn btn-secondary btn-sm">Clear Filters</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+
+        <!-- Filter Results Summary Bar -->
+        <div class="results-bar">
+            <span>
+                Showing <strong>{{ filtered_count }}</strong> of <strong>{{ total_count }}</strong> expenses
+            </span>
+            <span class="results-total">
+                Total: <strong>{{ filtered_total | rupees }}</strong>
+            </span>
+        </div>
+
+        <!-- Expenses List -->
+        <div class="expenses">
+            {% if filtered_count == 0 %}
+                <div class="empty-state">
+                    <p>No matching expenses found.</p>
+                    {% if q or category_filter or date_filter or payment_filter %}
+                        <a href="/expenses" class="btn btn-secondary">Clear Search Filters</a>
+                    {% else %}
+                        <a href="/add-expense" class="btn btn-primary">+ Add Your First Expense</a>
+                    {% endif %}
+                </div>
+            {% else %}
+                {% for item in expenses %}
+                    {% set exp = item["data"] %}
+                    <div class="expense-card">
+                        <div class="expense-main">
+                            <div class="expense-title-row">
+                                <h3 class="expense-name">{{ exp["name"] }}</h3>
+                                <span class="category-badge">{{ exp["category"] }}</span>
+                                <span class="payment-badge">{{ exp.get("payment_method", "Cash") }}</span>
+                            </div>
+                            <p class="expense-meta">Date: {{ exp["date"] }}</p>
+                            {% if exp["note"] and exp["note"] != "-" %}
+                                <p class="expense-note">Note: {{ exp["note"] }}</p>
+                            {% endif %}
+                        </div>
+
+                        <div class="expense-right">
+                            <div class="expense-amount">{{ exp["amount"] | rupees }}</div>
+                            <div class="expense-actions">
+                                <a href="/edit-expense/{{ item['index'] }}" class="btn btn-sm btn-edit">Edit</a>
+                                <a href="/delete-expense/{{ item['index'] }}" class="btn btn-sm btn-delete" onclick="return confirm('Are you sure you want to delete this expense?');">Delete</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+    </main>
+
+</body>
+</html>

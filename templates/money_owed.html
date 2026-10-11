@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Owed - Hostelite Finance System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    {% include 'nav.html' %}
+
+    <main class="container">
+
+        <div class="page-header-row">
+            <div>
+                <h1>Money Owed</h1>
+                <p>Track shared bills, money lent to roommates, and borrowed cash in one place</p>
+            </div>
+        </div>
+
+        {% if error %}
+            <div class="alert-error">
+                {{ error }}
+            </div>
+        {% endif %}
+
+        <!-- Toast notification for clipboard feedback -->
+        <div id="copy-toast" class="copy-toast" style="display: none;">
+            Reminder message copied to clipboard!
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="dashboard-grid money-owed-stats-grid">
+            <div class="card">
+                <h3>They Owe You</h3>
+                <p class="stat-number text-success">{{ others_owe_you | rupees }}</p>
+                <span class="card-subtext">Pending money to collect</span>
+            </div>
+
+            <div class="card">
+                <h3>You Owe Them</h3>
+                <p class="stat-number text-danger">{{ you_owe_others | rupees }}</p>
+                <span class="card-subtext">Pending debt to pay back</span>
+            </div>
+
+            <div class="card">
+                <h3>People Who Owe You</h3>
+                <p class="stat-number text-primary">{{ people_who_owe_me_count }}</p>
+                <span class="card-subtext">Friends with outstanding debt to you</span>
+            </div>
+
+            <div class="card">
+                <h3>People You Owe</h3>
+                <p class="stat-number text-danger">{{ people_you_owe_count }}</p>
+                <span class="card-subtext">Friends you need to repay</span>
+            </div>
+
+            <div class="card">
+                <h3>Pending Records</h3>
+                <p class="stat-number">{{ pending_count }}</p>
+                <span class="card-subtext">Active transactions</span>
+            </div>
+
+            <div class="card">
+                <h3>Settled Records</h3>
+                <p class="stat-number text-muted">{{ settled_count }}</p>
+                <span class="card-subtext">Total settled: {{ settled_total | rupees }}</span>
+            </div>
+        </div>
+
+        <!-- Grouped Balances by Person Section -->
+        <div class="section-header">
+            <div>
+                <h2>Balances by Person ({{ grouped_by_person|length }})</h2>
+                <small class="text-muted">Net balances and one-click friendly WhatsApp reminders</small>
+            </div>
+        </div>
+
+        <div class="person-cards-grid">
+            {% if grouped_by_person|length == 0 %}
+                <div class="empty-state" style="grid-column: 1 / -1;">
+                    <p>No person records yet. Add a transaction below to start tracking balances.</p>
+                </div>
+            {% else %}
+                {% for g in grouped_by_person %}
+                    <div class="card person-card {% if g.net > 0 %}person-card-owed{% elif g.net < 0 %}person-card-owing{% endif %}">
+                        <div class="person-card-header">
+                            <div>
+                                <h3 class="person-name">{{ g.display_name }}</h3>
+                                {% if g.net > 0 %}
+                                    <span class="badge badge-owe-you">Net: Owes you {{ g.net | rupees }}</span>
+                                {% elif g.net < 0 %}
+                                    <span class="badge badge-you-owe">Net: You owe {{ (g.net * -1) | rupees }}</span>
+                                {% else %}
+                                    <span class="badge badge-settled">Net: Settled / Even</span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="person-card-body">
+                            <div class="person-substats">
+                                <div><small class="text-muted">They Owe:</small> <strong>{{ g.they_owe | rupees }}</strong></div>
+                                <div><small class="text-muted">You Owe:</small> <strong>{{ g.you_owe | rupees }}</strong></div>
+                                <div><small class="text-muted">Settled:</small> <strong>{{ g.settled_total | rupees }}</strong></div>
+                            </div>
+
+                            {% if g.net > 0 %}
+                                <div class="reminder-box">
+                                    <p class="reminder-label">Friendly Reminder Helper:</p>
+                                    <div class="reminder-actions">
+                                        <button type="button" class="btn btn-sm btn-outline copy-btn" data-text="{{ g.reminder_msg }}">
+                                            Copy Reminder
+                                        </button>
+                                        <a href="https://wa.me/?text={{ g.reminder_msg | urlencode }}" target="_blank" class="btn btn-sm btn-whatsapp">
+                                            Send WhatsApp
+                                        </a>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="person-card-footer">
+                            <a href="/money-owed?person={{ g.display_name }}" class="btn btn-sm btn-secondary">
+                                View Records ({{ g.records|length }})
+                            </a>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+        <!-- Add Money Owed Form -->
+        <div class="card form-card-wide" style="margin-top: 25px;">
+            <div class="card-header">
+                <h3>Record New Transaction</h3>
+            </div>
+            <form method="POST" action="/money-owed" class="ledger-form">
+                <div class="form-grid-3">
+                    <div class="form-group">
+                        <label for="person">Person's Name *</label>
+                        <input type="text" id="person" name="person" placeholder="e.g. Ali, Hamza, Saad" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="type">Transaction Type *</label>
+                        <select id="type" name="type" required>
+                            <option value="they_owe_me" selected>They owe me (I paid or lent money)</option>
+                            <option value="i_owe_them">I owe them (They paid or I borrowed money)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="amount">Amount (Rs.) *</label>
+                        <input type="number" id="amount" name="amount" step="any" min="0.01" placeholder="e.g. 500" required>
+                    </div>
+                </div>
+
+                <div class="form-grid-3">
+                    <div class="form-group">
+                        <label for="date">Date *</label>
+                        <input type="date" id="date" name="date" value="{{ today }}" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="reason">Reason / Purpose</label>
+                        <input type="text" id="reason" name="reason" placeholder="e.g. Dinner share, WiFi bill, Book loan">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="note">Optional Note</label>
+                        <input type="text" id="note" name="note" placeholder="e.g. Will settle after weekend">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-sm">Save Record</button>
+            </form>
+        </div>
+
+        <!-- Search & Filter Bar -->
+        <div class="card filter-card">
+            <form method="GET" action="/money-owed">
+                <div class="filter-grid">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="q">Search Records</label>
+                        <input type="text" id="q" name="q" value="{{ q }}" placeholder="Search by name, reason, note...">
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="status">Filter by Status</label>
+                        <select id="status" name="status">
+                            <option value="All" {% if status_filter == 'All' %}selected{% endif %}>All Records</option>
+                            <option value="Pending" {% if status_filter == 'Pending' %}selected{% endif %}>Pending Only</option>
+                            <option value="Settled" {% if status_filter == 'Settled' %}selected{% endif %}>Settled Only</option>
+                        </select>
+                    </div>
+
+                    {% if person_filter %}
+                        <input type="hidden" name="person" value="{{ person_filter }}">
+                    {% endif %}
+
+                    <div class="filter-actions" style="align-self: flex-end;">
+                        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                        {% if q or status_filter != 'All' or person_filter %}
+                            <a href="/money-owed" class="btn btn-secondary btn-sm">Clear Filter</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Records List -->
+        <div class="section-header">
+            <div>
+                <h2>
+                    Transactions
+                    {% if person_filter %}for {{ person_filter|capitalize }}{% endif %}
+                    ({{ records|length }}{% if records|length != total_records_count %} of {{ total_records_count }}{% endif %})
+                </h2>
+                {% if person_filter %}
+                    <small class="text-muted"><a href="/money-owed">Show all people</a></small>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="expenses">
+            {% if records|length == 0 %}
+                <div class="empty-state">
+                    <p>No matching money owed records found.</p>
+                    {% if q or status_filter != 'All' or person_filter %}
+                        <a href="/money-owed" class="btn btn-secondary btn-sm" style="margin-top: 10px;">Reset Filters</a>
+                    {% else %}
+                        <p>Use the form above to track shared meals, loans, or split bills.</p>
+                    {% endif %}
+                </div>
+            {% else %}
+                {% for r in records %}
+                    <div class="expense-card {% if r['status'] == 'Settled' %}card-settled{% endif %}">
+                        <div class="expense-main">
+                            <div class="expense-title-row">
+                                <h3 class="expense-name">{{ r["person"] }}</h3>
+                                {% if r["type"] == "they_owe_me" %}
+                                    <span class="badge badge-owe-you">They Owe You</span>
+                                {% else %}
+                                    <span class="badge badge-you-owe">You Owe Them</span>
+                                {% endif %}
+
+                                {% if r["status"] == "Settled" %}
+                                    <span class="badge badge-settled">Settled</span>
+                                {% else %}
+                                    <span class="badge badge-pending">Pending</span>
+                                {% endif %}
+                            </div>
+
+                            <p class="expense-meta">
+                                Date: {{ r["date"] }}
+                                {% if r["reason"] %} &bull; <strong>Reason:</strong> {{ r["reason"] }}{% endif %}
+                            </p>
+                            {% if r["note"] and r["note"] != r["reason"] %}
+                                <p class="expense-note">Note: {{ r["note"] }}</p>
+                            {% endif %}
+
+                            {% if r["type"] == "they_owe_me" and r["status"] == "Pending" %}
+                                <div class="item-reminder-inline">
+                                    <button type="button" class="btn btn-sm btn-outline copy-btn" data-text="{{ r | reminder_text }}" title="Copy polite reminder text">
+                                        Copy Reminder
+                                    </button>
+                                    <a href="https://wa.me/?text={{ (r | reminder_text) | urlencode }}" target="_blank" class="btn btn-sm btn-whatsapp" title="Send WhatsApp message">
+                                        WhatsApp
+                                    </a>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="expense-right">
+                            <div class="expense-amount {% if r['type'] == 'they_owe_me' %}text-success{% else %}text-danger{% endif %}">
+                                {% if r['type'] == 'they_owe_me' %}+{% else %}-{% endif %}{{ r["amount"] | rupees }}
+                            </div>
+                            <div class="expense-actions">
+                                <a href="/money-owed/edit/{{ r['id'] }}" class="btn btn-sm btn-edit">Edit</a>
+                                <a href="/money-owed/toggle/{{ r['id'] }}" class="btn btn-sm btn-outline">
+                                    {% if r['status'] == 'Settled' %}Mark Pending{% else %}Mark Settled{% endif %}
+                                </a>
+                                <a href="/money-owed/delete/{{ r['id'] }}" class="btn btn-sm btn-delete" onclick="return confirm('Delete this record?');">Delete</a>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+
+    </main>
+
+    <script>
+        // Clipboard Copy Helper with Toast Notification
+        document.addEventListener("DOMContentLoaded", function() {
+            var copyButtons = document.querySelectorAll(".copy-btn");
+            var toast = document.getElementById("copy-toast");
+            var timeoutId = null;
+
+            copyButtons.forEach(function(btn) {
+                btn.addEventListener("click", function() {
+                    var textToCopy = btn.getAttribute("data-text");
+                    if (!textToCopy) return;
+
+                    var originalText = btn.textContent;
+
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(textToCopy).then(showSuccess, fallbackCopy);
+                    } else {
+                        fallbackCopy();
+                    }
+
+                    function showSuccess() {
+                        btn.textContent = "Copied!";
+                        btn.classList.add("btn-copied");
+
+                        if (toast) {
+                            toast.style.display = "block";
+                            clearTimeout(timeoutId);
+                            timeoutId = setTimeout(function() {
+                                toast.style.display = "none";
+                            }, 2500);
+                        }
+
+                        setTimeout(function() {
+                            btn.textContent = originalText;
+                            btn.classList.remove("btn-copied");
+                        }, 2000);
+                    }
+
+                    function fallbackCopy() {
+                        var tempInput = document.createElement("textarea");
+                        tempInput.value = textToCopy;
+                        document.body.appendChild(tempInput);
+                        tempInput.select();
+                        document.execCommand("copy");
+                        document.body.removeChild(tempInput);
+                        showSuccess();
+                    }
+                });
+            });
+        });
+    </script>
+
+</body>
+</html>
