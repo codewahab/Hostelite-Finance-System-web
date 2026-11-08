@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Hostelite Finance System</title>
+    <title>Hostelite Finance - Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/hostelite-logo.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
@@ -13,135 +15,128 @@
 
     <main class="container">
 
-        <div class="header">
-            <h1>Hostel Finance Dashboard</h1>
-            <p>
-                Budget Period: <strong>{{ cycle_start }}</strong> to <strong>{{ cycle_end }}</strong>
-                &bull; <strong>{{ days_remaining }}</strong> day{% if days_remaining != 1 %}s{% endif %} left
-            </p>
-        </div>
-
-        <!-- Low Funds & Over Budget Alert Banner -->
-        {% if is_over_budget or is_low_funds %}
-            <div class="alert-warning low-funds-banner">
-                <div class="low-funds-text">
-                    {% if is_over_budget %}
-                        <strong>Budget Alert:</strong> You have spent <strong>{{ total_expense | rupees }}</strong>, which is <strong>{{ (remaining * -1) | rupees }}</strong> over your budget of {{ allowance | rupees }}!
-                    {% else %}
-                        <strong>Low Funds Warning:</strong> {{ low_funds_message }}
-                    {% endif %}
-                </div>
-
-                {% if top_debtors|length > 0 %}
-                    <div class="low-funds-debtors">
-                        <span class="debtors-hint">Recover cash flow by collecting pending debts:</span>
-                        <div class="debtors-tag-list">
-                            {% for d in top_debtors %}
-                                <span class="debtor-tag"><strong>{{ d.name }}</strong> owes you {{ d.amount | rupees }}</span>
-                            {% endfor %}
+        <!-- Contextual In-App Warnings -->
+        {% if contextual_warnings %}
+            <div class="warnings-stack" style="margin-bottom: 20px;">
+                {% for w in contextual_warnings %}
+                    <div class="alert alert-{{ w.type }}" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <strong>{{ w.title }}:</strong> {{ w.message }}
                         </div>
-                        <a href="/money-owed" class="btn btn-sm btn-primary" style="margin-top: 8px;">Open Money Owed & Send Reminders</a>
+                        {% if w.action_url and w.action_text %}
+                            <a href="{{ w.action_url }}" class="btn btn-sm btn-outline" style="white-space: nowrap; font-size: 12px; padding: 4px 10px;">{{ w.action_text }} &rarr;</a>
+                        {% endif %}
                     </div>
-                {% endif %}
+                {% endfor %}
             </div>
         {% endif %}
 
-        <!-- Primary Budget & Cash Cards -->
-        <div class="dashboard-grid">
-
-            <!-- Card 1: Allowance -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>Allowance</h3>
-                    <a href="/set-allowance" class="card-action">{% if allowance > 0 %}Edit{% else %}+ Set{% endif %}</a>
+        <!-- 1. Primary Budget Summary Card -->
+        <section class="card budget-hero-card" aria-label="Monthly Budget Summary">
+            <div class="budget-hero-header">
+                <div class="hero-primary-block">
+                    <span class="hero-label">Safe Daily Spending Limit</span>
+                    <div class="hero-primary-amount">
+                        {% if allowance > 0 %}
+                            {% if is_over_budget %}
+                                <span class="stat-hero text-danger">Rs. 0</span>
+                                <span class="stat-hero-unit">/ day</span>
+                            {% else %}
+                                <span class="stat-hero">{{ daily_limit | rupees }}</span>
+                                <span class="stat-hero-unit">/ day</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="stat-hero text-muted">Rs. 0</span>
+                            <span class="stat-hero-unit">/ day</span>
+                        {% endif %}
+                    </div>
+                    <p class="hero-subtext">
+                        {% if allowance > 0 %}
+                            {% if is_over_budget %}
+                                Budget exceeded by {{ (remaining * -1) | rupees }}. Limit expenses for the remaining {{ days_remaining }} day{% if days_remaining != 1 %}s{% endif %}.
+                            {% else %}
+                                Recommended safe spending pace for the next {{ days_remaining }} day{% if days_remaining != 1 %}s{% endif %} in this cycle.
+                            {% endif %}
+                        {% else %}
+                            Set your monthly allowance to calculate your daily spending limit.
+                        {% endif %}
+                    </p>
                 </div>
-                {% if allowance > 0 %}
-                    <p class="stat-number">{{ allowance | rupees }}</p>
-                    <span class="card-subtext">Received: {{ received_date if received_date else '1st of month' }}</span>
-                {% else %}
-                    <p class="stat-number text-muted">Not Set</p>
-                    <span class="card-subtext"><a href="/set-allowance">Set monthly budget</a></span>
-                {% endif %}
+                <div class="hero-header-actions">
+                    <a href="/set-allowance" class="card-action">
+                        {% if allowance > 0 %}Edit Allowance{% else %}+ Set Allowance{% endif %}
+                    </a>
+                </div>
             </div>
 
-            <!-- Card 2: Spent in Cycle -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>Cycle Spent</h3>
-                    <a href="/expenses" class="card-action">View All</a>
+            <!-- Spending Progress Bar -->
+            <div class="budget-progress-section">
+                <div class="budget-progress-info">
+                    <span class="progress-info-left">
+                        <strong>{{ percentage_spent }}%</strong> of allowance spent
+                        {% if allowance > 0 %}
+                            <span class="progress-fraction text-muted">({{ total_expense | rupees }} of {{ allowance | rupees }})</span>
+                        {% endif %}
+                    </span>
+                    <span class="progress-info-right text-muted">
+                        {{ days_remaining }} day{% if days_remaining != 1 %}s{% endif %} remaining &bull; {{ cycle_start }} – {{ cycle_end }}
+                    </span>
                 </div>
-                <p class="stat-number">{{ total_expense | rupees }}</p>
-                <span class="card-subtext">
-                    {% if allowance > 0 %}
-                        {{ percentage_spent }}% of allowance spent
-                    {% else %}
-                        All-time: {{ all_time_total | rupees }}
-                    {% endif %}
-                </span>
+                <div class="budget-progress-track">
+                    <div class="budget-progress-bar {% if is_over_budget %}progress-bar-danger{% elif percentage_spent > 85 %}progress-bar-warning{% endif %}"
+                         style="width: {{ [percentage_spent, 100]|min }}%;"></div>
+                </div>
             </div>
 
-            <!-- Card 3: Remaining Budget -->
-            <div class="card {% if is_over_budget %}card-danger{% endif %}">
-                <div class="card-header">
-                    <h3>Remaining Budget</h3>
+            <!-- Supporting Values: Budget Remaining vs Available Cash -->
+            <div class="budget-supporting-grid">
+                <div class="supporting-metric-card">
+                    <div class="supporting-metric-header">
+                        <span class="supporting-label">Budget Remaining</span>
+                        {% if allowance > 0 %}
+                            {% if is_over_budget %}
+                                <span class="badge badge-you-owe">Over Budget</span>
+                            {% else %}
+                                <span class="badge badge-settled">{{ (100 - percentage_spent)|round(1) }}% left</span>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                    <p class="supporting-value {% if is_over_budget %}text-danger{% elif allowance == 0 %}text-muted{% endif %}">
+                        {{ remaining | rupees }}
+                    </p>
+                    <span class="supporting-hint">
+                        Total allowance minus cycle expenses
+                    </span>
                 </div>
-                {% if allowance > 0 %}
-                    {% if is_over_budget %}
-                        <p class="stat-number text-danger">{{ remaining | rupees }}</p>
-                        <span class="card-subtext text-danger">Over budget</span>
-                    {% else %}
-                        <p class="stat-number text-success">{{ remaining | rupees }}</p>
-                        <span class="card-subtext">{{ (100 - percentage_spent)|round(1) }}% left for {{ days_remaining }} days</span>
-                    {% endif %}
-                {% else %}
-                    <p class="stat-number text-muted">Rs. 0</p>
-                    <span class="card-subtext"><a href="/set-allowance">Set allowance to track</a></span>
-                {% endif %}
-            </div>
 
-            <!-- Card 4: Available Cash (Wallet / Cash Flow) -->
-            <div class="card {% if available_cash < 0 %}card-danger{% endif %}">
-                <div class="card-header">
-                    <h3>Available Cash</h3>
+                <div class="supporting-metric-card">
+                    <div class="supporting-metric-header">
+                        <span class="supporting-label">Available Cash</span>
+                        {% if available_cash < 0 %}
+                            <span class="badge badge-you-owe">Deficit</span>
+                        {% elif others_owe_you > 0 or you_owe_others > 0 %}
+                            <span class="badge badge-borrowed">Adjusted</span>
+                        {% else %}
+                            <span class="badge badge-settled">Matches Budget</span>
+                        {% endif %}
+                    </div>
+                    <p class="supporting-value {% if available_cash < 0 %}text-danger{% endif %}">
+                        {{ available_cash | rupees }}
+                    </p>
+                    <span class="supporting-hint">
+                        Actual cash in hand
+                        {% if others_owe_you > 0 or you_owe_others > 0 %}
+                            (incl. {% if you_owe_others > 0 %}+{{ you_owe_others | rupees }} borrowed{% endif %}{% if others_owe_you > 0 and you_owe_others > 0 %}, {% endif %}{% if others_owe_you > 0 %}-{{ others_owe_you | rupees }} lent{% endif %})
+                        {% else %}
+                            (wallet & bank accounts)
+                        {% endif %}
+                    </span>
                 </div>
-                <p class="stat-number {% if available_cash < 0 %}text-danger{% elif available_cash > 0 %}text-primary{% else %}text-muted{% endif %}">
-                    {{ available_cash | rupees }}
-                </p>
-                <span class="card-subtext">
-                    Cash in hand
-                    {% if others_owe_you > 0 or you_owe_others > 0 %}
-                        <span title="Budget {{ remaining | rupees }} {% if you_owe_others > 0 %}+ {{ you_owe_others | rupees }} borrowed{% endif %} {% if others_owe_you > 0 %}- {{ others_owe_you | rupees }} lent{% endif %}">
-                            (incl. borrowed/lent)
-                        </span>
-                    {% else %}
-                        (equals budget)
-                    {% endif %}
-                </span>
             </div>
+        </section>
 
-            <!-- Card 5: Daily Safe Limit -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>Daily Safe Limit</h3>
-                </div>
-                {% if allowance > 0 %}
-                    {% if is_over_budget %}
-                        <p class="stat-number text-danger">Rs. 0</p>
-                        <span class="card-subtext text-danger">Budget exceeded</span>
-                    {% else %}
-                        <p class="stat-number text-primary">{{ daily_limit | rupees }} / day</p>
-                        <span class="card-subtext">Safe spending for {{ days_remaining }} days</span>
-                    {% endif %}
-                {% else %}
-                    <p class="stat-number text-muted">-</p>
-                    <span class="card-subtext">Set allowance to calculate</span>
-                {% endif %}
-            </div>
-
-        </div>
-
-        <!-- Quick Add Expense Card (5-Second Experience) -->
-        <div class="card quick-add-card">
+        <!-- 2. Quick Add Expense Card -->
+        <section class="card quick-add-card" aria-label="Quick Add Expense">
             <div class="card-header">
                 <h3>Quick Add Expense</h3>
                 <span class="card-subtext">Log an expense in 5 seconds</span>
@@ -174,7 +169,7 @@
                     </div>
                 </div>
 
-                <!-- Quick Category Click Chips (Click to fill text input, Category remains normal text input!) -->
+                <!-- Quick Category Click Chips -->
                 <div class="quick-chips-row">
                     <span class="chips-label">Quick tags:</span>
                     {% for cat in quick_categories %}
@@ -182,73 +177,127 @@
                     {% endfor %}
                 </div>
             </form>
-        </div>
+        </section>
 
-        <!-- Quick Summary for Money Owed -->
-        <div class="card money-owed-dashboard-card">
-            <div class="card-header">
-                <h3>Money Owed</h3>
-                <a href="/money-owed" class="card-action">Open Money Owed</a>
-            </div>
-            <div class="money-owed-summary-row">
-                <div class="summary-metric">
-                    <span class="card-subtext">Others Owe You</span>
-                    <p class="stat-number text-success">{{ others_owe_you | rupees }}</p>
-                </div>
-                <div class="summary-metric">
-                    <span class="card-subtext">You Owe Others</span>
-                    <p class="stat-number text-danger">{{ you_owe_others | rupees }}</p>
-                </div>
-                <div class="summary-metric">
-                    <span class="card-subtext">Pending Records</span>
-                    <p class="stat-number">{{ pending_records_count }}</p>
-                </div>
-            </div>
-        </div>
+        <!-- 3. Responsive Split Grid: Recent Expenses & Money Owed -->
+        <div class="dashboard-split-grid">
 
-        <!-- Recent Expenses Section -->
-        <div class="section-header">
-            <div>
-                <h2>Recent Expenses</h2>
-                <small class="text-muted">Showing latest {{ recent_expenses|length }} of {{ expenses|length }} expenses</small>
-            </div>
-            <div class="header-actions">
-                <a href="/expenses" class="btn btn-secondary btn-sm">Search & View All</a>
-                <a href="/add-expense" class="btn btn-primary btn-sm">+ Full Form</a>
-            </div>
-        </div>
-
-        <div class="expenses">
-            {% if recent_expenses|length == 0 %}
-                <div class="empty-state">
-                    <p>No expenses recorded yet.</p>
-                    <a href="/add-expense" class="btn btn-primary">+ Add First Expense</a>
+            <!-- Section A: Recent Expenses -->
+            <section class="dashboard-col" aria-label="Recent Expenses">
+                <div class="section-header">
+                    <div>
+                        <h2>Recent Expenses</h2>
+                        <small class="text-muted">Showing latest {{ recent_expenses|length }} of {{ expenses|length }}</small>
+                    </div>
+                    <div class="header-actions">
+                        <a href="/expenses" class="btn btn-secondary btn-sm">View All</a>
+                        <a href="/add-expense" class="btn btn-primary btn-sm">+ Full Form</a>
+                    </div>
                 </div>
-            {% else %}
-                {% for expense in recent_expenses %}
-                    <div class="expense-card">
-                        <div class="expense-main">
-                            <div class="expense-title-row">
-                                <h3 class="expense-name">{{ expense["name"] }}</h3>
-                                <span class="category-badge">{{ expense["category"] }}</span>
-                                <span class="payment-badge">{{ expense.get("payment_method", "Cash") }}</span>
-                            </div>
-                            <p class="expense-meta">Date: {{ expense["date"] }}</p>
-                            {% if expense["note"] and expense["note"] != "-" %}
-                                <p class="expense-note">Note: {{ expense["note"] }}</p>
-                            {% endif %}
+
+                <div class="expenses">
+                    {% if recent_expenses|length == 0 %}
+                        <div class="empty-state">
+                            <p>No expenses recorded yet.</p>
+                            <a href="/add-expense" class="btn btn-primary btn-sm" style="margin-top: 8px;">+ Add First Expense</a>
                         </div>
+                    {% else %}
+                        {% for expense in recent_expenses %}
+                            <div class="expense-card">
+                                <div class="expense-main">
+                                    <div class="expense-title-row">
+                                        <h3 class="expense-name">{{ expense["name"] }}</h3>
+                                        <span class="category-badge">{{ expense["category"] }}</span>
+                                        <span class="payment-badge">{{ expense.get("payment_method", "Cash") }}</span>
+                                    </div>
+                                    <p class="expense-meta">Date: {{ expense["date"] }}</p>
+                                    {% if expense["note"] and expense["note"] != "-" %}
+                                        <p class="expense-note">Note: {{ expense["note"] }}</p>
+                                    {% endif %}
+                                </div>
 
-                        <div class="expense-right">
-                            <div class="expense-amount">{{ expense["amount"] | rupees }}</div>
-                            <div class="expense-actions">
-                                <a href="/edit-expense/{{ loop.index0 }}" class="btn btn-sm btn-edit">Edit</a>
-                                <a href="/delete-expense/{{ loop.index0 }}" class="btn btn-sm btn-delete" onclick="return confirm('Are you sure you want to delete this expense?');">Delete</a>
+                                <div class="expense-right">
+                                    <div class="expense-amount">{{ expense["amount"] | rupees }}</div>
+                                    <div class="expense-actions" style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap;">
+                                        <a href="/expense/download-pdf/{{ expense.id }}" class="btn btn-sm btn-outline" title="Download PDF Receipt">PDF</a>
+                                        <button type="button" class="btn btn-sm btn-whatsapp" title="Share via WhatsApp" onclick="shareExpenseReceipt({{ expense.id }}, '{{ expense.name|replace("'", "\\'") }}', '{{ expense.amount }}', '{{ expense.category|replace("'", "\\'") }}', '{{ expense.date }}')">Share</button>
+                                        <a href="/edit-expense/{{ expense.id }}" class="btn btn-sm btn-edit">Edit</a>
+                                        <a href="/delete-expense/{{ expense.id }}" class="btn btn-sm btn-delete" onclick="return confirm('Are you sure you want to delete this expense: {{ expense.name }} ({{ expense.amount | rupees }})?');">Delete</a>
+                                    </div>
+                                </div>
                             </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </section>
+
+            <!-- Section B: Money Owed (Both Sides + Subtle Indicator) -->
+            <section class="dashboard-col" aria-label="Money Owed Overview">
+                <div class="section-header">
+                    <div class="header-title-with-badge">
+                        <h2>Money Owed</h2>
+                        {% if pending_records_count > 0 %}
+                            <span class="badge badge-pending">{{ pending_records_count }} pending</span>
+                        {% endif %}
+                    </div>
+                    <div class="header-actions">
+                        <a href="/money-owed" class="btn btn-secondary btn-sm">Open Ledger</a>
+                    </div>
+                </div>
+
+                <div class="card money-owed-dual-card">
+                    <div class="money-owed-dual-row">
+                        <div class="dual-metric">
+                            <span class="dual-label">Others Owe You</span>
+                            <p class="stat-number">{{ others_owe_you | rupees }}</p>
+                            <span class="card-subtext">Pending to collect</span>
+                        </div>
+                        <div class="dual-divider"></div>
+                        <div class="dual-metric">
+                            <span class="dual-label">You Owe Others</span>
+                            <p class="stat-number">{{ you_owe_others | rupees }}</p>
+                            <span class="card-subtext">Pending to repay</span>
                         </div>
                     </div>
-                {% endfor %}
-            {% endif %}
+
+                    <!-- Mini Pending List Snapshot -->
+                    <div class="money-owed-mini-list">
+                        {% if pending_debts|length == 0 %}
+                            <div class="empty-state-mini">
+                                <p class="text-muted">No pending debts or borrowed money right now.</p>
+                                <a href="/money-owed" class="btn btn-sm btn-outline" style="margin-top: 6px;">+ Record Transaction</a>
+                            </div>
+                        {% else %}
+                            <div class="mini-debts-header">
+                                <span class="text-muted">Recent Pending Transactions</span>
+                            </div>
+                            <div class="mini-debts-items">
+                                {% for d in pending_debts %}
+                                    <div class="mini-debt-item">
+                                        <div class="mini-debt-info">
+                                            <strong class="mini-debt-person">{{ d["person"] }}</strong>
+                                            <span class="mini-debt-reason text-muted">{{ d.get("reason", "General") }} &bull; {{ d["date"] }}</span>
+                                        </div>
+                                        <div class="mini-debt-amount">
+                                            {% if d["type"] == "they_owe_me" %}
+                                                <span class="font-bold">+{{ d["amount"] | rupees }}</span>
+                                                <span class="badge badge-owe-you-mini">Owes you</span>
+                                            {% else %}
+                                                <span class="font-bold">-{{ d["amount"] | rupees }}</span>
+                                                <span class="badge badge-you-owe-mini">You owe</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            <div class="mini-debts-footer">
+                                <a href="/money-owed" class="mini-debts-link">View all records & balances &rarr;</a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+
         </div>
 
     </main>
@@ -260,6 +309,20 @@
                 catInput.value = name;
                 catInput.focus();
             }
+        }
+
+        function shareExpenseReceipt(id, name, amount, category, date) {
+            var pdfUrl = '/expense/pdf/' + id;
+            var downloadUrl = '/expense/download-pdf/' + id;
+            var fileName = 'Expense_Receipt_' + id + '.pdf';
+            var subject = 'Expense Receipt: ' + name;
+            var text = 'Hostelite Finance — Expense Receipt\n' +
+                       'Item: ' + name + '\n' +
+                       'Amount: Rs. ' + Number(amount).toLocaleString() + '\n' +
+                       'Category: ' + category + '\n' +
+                       'Date: ' + date + '\n\n' +
+                       'PDF receipt has been downloaded to your device. Please find the attached PDF file.';
+            shareRecordPdf(pdfUrl, downloadUrl, fileName, subject, text);
         }
     </script>
 

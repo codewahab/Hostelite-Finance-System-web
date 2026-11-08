@@ -1,12 +1,254 @@
 <header class="top-nav-wrapper">
     <div class="nav-container">
-        <a href="/" class="nav-brand">Hostelite Finance</a>
-        <nav class="nav-links">
-            <a href="/" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
-            <a href="/expenses" class="nav-link {% if active_page == 'expenses' %}active{% endif %}">Expenses</a>
-            <a href="/money-owed" class="nav-link {% if active_page == 'money_owed' %}active{% endif %}">Money Owed</a>
-            <a href="/split-expense" class="nav-link {% if active_page == 'split' %}active{% endif %}">Split Bill</a>
-            <a href="/reports" class="nav-link {% if active_page == 'reports' %}active{% endif %}">Reports</a>
-        </nav>
+        <a href="/" class="nav-brand" aria-label="Hostelite Finance Home">
+            <span class="brand-logo-wrap">
+                <img src="{{ url_for('static', filename='images/hostelite-logo.png') }}"
+                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='images/hostelite-logo.svg') }}';"
+                     alt="Hostelite Brand Logo"
+                     class="brand-logo-img"
+                     width="28" height="28">
+            </span>
+            <span class="brand-text">Hostelite <span class="brand-suffix">Finance</span></span>
+        </a>
+
+        <!-- Mobile Navigation Hamburger Toggle -->
+        <button type="button" class="mobile-nav-toggle" id="mobile-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="nav-collapsible">
+            <span class="hamburger-bar"></span>
+            <span class="hamburger-bar"></span>
+            <span class="hamburger-bar"></span>
+        </button>
+
+        <!-- Collapsible Navigation & User Actions -->
+        <div class="nav-collapsible" id="nav-collapsible">
+            <nav class="nav-links">
+                <a href="/" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
+                <a href="/expenses" class="nav-link {% if active_page == 'expenses' %}active{% endif %}">Expenses</a>
+                <a href="/money-owed" class="nav-link {% if active_page == 'money_owed' %}active{% endif %}">Money Owed</a>
+                <a href="/split-expense" class="nav-link {% if active_page == 'split' %}active{% endif %}">Split Bill</a>
+                <a href="/reports" class="nav-link {% if active_page == 'reports' %}active{% endif %}">Reports</a>
+            </nav>
+            <div class="nav-user-actions">
+                {% if session.get('user_id') %}
+                    <span class="user-greeting">
+                        <span class="user-avatar-badge">
+                            {{ session.get('display_name', session.get('username', 'U'))[0]|upper }}
+                        </span>
+                        <strong class="user-name">{{ session.get('display_name', session.get('username')) }}</strong>
+                    </span>
+                    <a href="/backup-data" class="btn btn-sm btn-outline nav-action-btn" title="Download backup of your financial data">Backup</a>
+                    <a href="/logout" class="btn btn-sm btn-secondary nav-action-btn">Logout</a>
+                {% else %}
+                    <a href="/login" class="nav-link nav-login-link">Login</a>
+                    <a href="/register" class="btn btn-sm btn-primary nav-action-btn">Sign Up</a>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </header>
+
+<!-- Toast Notifications Container -->
+<div id="toast-container" class="toast-container" aria-live="polite">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="toast-item toast-{{ category if category != 'message' else 'info' }}" role="alert" data-category="{{ category }}">
+                    <div class="toast-content">
+                        <span class="toast-message">{{ message }}</span>
+                    </div>
+                    <button type="button" class="toast-close" aria-label="Close notification" onclick="dismissToast(this.parentElement)">&times;</button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+</div>
+
+<!-- Modal Dialog for Desktop WhatsApp PDF Sharing Fallback -->
+<div id="whatsapp-share-modal" class="modal-backdrop" style="display: none;" onclick="if(event.target===this) closeWhatsAppModal();">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="modal-share-title" style="margin: 0; font-size: 16px; color: #0f172a;">PDF Downloaded & Ready to Share</h3>
+            <button type="button" class="modal-close" onclick="closeWhatsAppModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 14px 0;">
+            <p style="margin: 0 0 10px 0; font-size: 14px; color: #334155;">
+                The PDF document <strong id="modal-filename-display">record.pdf</strong> has been downloaded to your computer.
+            </p>
+            <p style="margin: 0; font-size: 13px; color: #64748b; line-height: 1.5;">
+                Web browsers on desktop cannot automatically attach local files to WhatsApp Web. You can now attach the downloaded PDF directly in your WhatsApp chat.
+            </p>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="closeWhatsAppModal()">Done</button>
+            <a id="modal-wa-link" href="#" target="_blank" class="btn btn-whatsapp btn-sm" onclick="closeWhatsAppModal()">Open WhatsApp Chat</a>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Global Toast Notification Helper
+    function dismissToast(toast) {
+        if (!toast) return;
+        if (toast._timer) clearTimeout(toast._timer);
+        toast.classList.add("toast-hiding");
+        setTimeout(function() {
+            if (toast.parentElement) toast.remove();
+        }, 250);
+    }
+
+    function showToast(message, category) {
+        category = category || 'info';
+        var container = document.getElementById('toast-container');
+        if (!container) return;
+
+        var toast = document.createElement('div');
+        toast.className = 'toast-item toast-' + category;
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('data-category', category);
+
+        var content = document.createElement('div');
+        content.className = 'toast-content';
+        var msgSpan = document.createElement('span');
+        msgSpan.className = 'toast-message';
+        msgSpan.textContent = message;
+        content.appendChild(msgSpan);
+
+        var closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'toast-close';
+        closeBtn.setAttribute('aria-label', 'Close notification');
+        closeBtn.innerHTML = '&times;';
+        closeBtn.onclick = function() { dismissToast(toast); };
+
+        toast.appendChild(content);
+        toast.appendChild(closeBtn);
+        container.appendChild(toast);
+
+        var duration = (category === 'error' || category === 'danger') ? 5000 : 3000;
+        toast._timer = setTimeout(function() {
+            dismissToast(toast);
+        }, duration);
+    }
+
+    function initToasts() {
+        var toasts = document.querySelectorAll('.toast-item');
+        toasts.forEach(function(toast) {
+            var category = toast.getAttribute('data-category') || 'info';
+            var duration = (category === 'error' || category === 'danger') ? 5000 : 3000;
+            toast._timer = setTimeout(function() {
+                dismissToast(toast);
+            }, duration);
+        });
+    }
+
+    // WhatsApp PDF Sharing Helper (Web Share API with Desktop Fallback)
+    async function shareRecordPdf(pdfUrl, downloadUrl, fileName, title, summaryText) {
+        // Check if Web Share API with files is supported (mobile Chrome/Safari)
+        if (navigator.canShare && window.File) {
+            try {
+                showToast('Preparing PDF document for sharing...', 'info');
+                const response = await fetch(pdfUrl);
+                if (!response.ok) throw new Error('Failed to fetch PDF');
+                const blob = await response.blob();
+                const file = new File([blob], fileName, { type: 'application/pdf' });
+
+                if (navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        files: [file],
+                        title: title,
+                        text: summaryText
+                    });
+                    showToast('PDF shared successfully!', 'success');
+                    return;
+                }
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.warn('Native file share failed or not allowed, falling back to download:', err);
+                } else {
+                    return; // User cancelled
+                }
+            }
+        }
+
+        // Fallback for Desktop / unsupported browsers:
+        // 1. Download the PDF file to user device
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        // 2. Open transparent modal for WhatsApp chat
+        var modal = document.getElementById('whatsapp-share-modal');
+        var filenameDisplay = document.getElementById('modal-filename-display');
+        var waLink = document.getElementById('modal-wa-link');
+
+        if (modal && filenameDisplay && waLink) {
+            filenameDisplay.textContent = fileName;
+            var waUrl = "https://wa.me/?text=" + encodeURIComponent(summaryText);
+            waLink.href = waUrl;
+            modal.style.display = 'flex';
+        } else {
+            showToast('PDF downloaded! You can now attach it in WhatsApp.', 'success');
+        }
+    }
+
+    function closeWhatsAppModal() {
+        var modal = document.getElementById('whatsapp-share-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    // Accessible Mobile Navigation Toggle Handler
+    function initMobileNav() {
+        var toggle = document.getElementById('mobile-nav-toggle');
+        var menu = document.getElementById('nav-collapsible');
+        if (!toggle || !menu) return;
+
+        toggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var isOpen = menu.classList.contains('nav-open');
+            if (isOpen) {
+                menu.classList.remove('nav-open');
+                toggle.classList.remove('active');
+                toggle.setAttribute('aria-expanded', 'false');
+            } else {
+                menu.classList.add('nav-open');
+                toggle.classList.add('active');
+                toggle.setAttribute('aria-expanded', 'true');
+            }
+        });
+
+        // Close menu when tapping outside
+        document.addEventListener('click', function(e) {
+            if (menu.classList.contains('nav-open') && !menu.contains(e.target) && !toggle.contains(e.target)) {
+                menu.classList.remove('nav-open');
+                toggle.classList.remove('active');
+                toggle.setAttribute('aria-expanded', 'false');
+            }
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && menu.classList.contains('nav-open')) {
+                menu.classList.remove('nav-open');
+                toggle.classList.remove('active');
+                toggle.setAttribute('aria-expanded', 'false');
+                toggle.focus();
+            }
+        });
+
+        // Auto close on window resize to desktop
+        window.addEventListener('resize', function() {
+            if (window.innerWidth >= 820 && menu.classList.contains('nav-open')) {
+                menu.classList.remove('nav-open');
+                toggle.classList.remove('active');
+                toggle.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        initToasts();
+        initMobileNav();
+    });
+</script>

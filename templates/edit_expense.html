@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Expense - Hostelite Finance System</title>
+    <title>Hostelite Finance - Edit Expense</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/hostelite-logo.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -24,7 +26,7 @@
         {% endif %}
 
         <div class="card form-card">
-            <form method="POST" action="/edit-expense/{{ index }}">
+            <form method="POST" action="/edit-expense/{{ item_id }}">
 
                 <div class="form-group">
                     <label for="name">Expense Name *</label>

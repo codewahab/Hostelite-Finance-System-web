@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Split Bill - Hostelite Finance System</title>
+    <title>Hostelite Finance - Split Bill</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/hostelite-logo.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -15,136 +17,235 @@
         <div class="page-header-row">
             <div>
                 <h1>Group Bill & Expense Splitter</h1>
-                <p>Easily calculate equal or custom splits with roommates and see who owes whom</p>
+                <p>Split hostel bills equally or custom with roommates, and sync debts without double-counting</p>
+            </div>
+            <div class="header-actions">
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleRoomManager()">
+                    Manage Rooms & Roster
+                </button>
             </div>
         </div>
 
         {% if error %}
-            <div class="alert-error">
+            <div class="alert alert-danger">
                 {{ error }}
             </div>
         {% endif %}
 
-        {% if sync_message %}
-            <div class="alert-success">
-                {{ sync_message }}
+        <!-- Room Management Panel (Collapsible) -->
+        <div id="room-manager-panel" class="card" style="display: none; margin-bottom: 22px; background: #f8fafc; border: 1px solid #cbd5e1;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="font-size: 15px; margin: 0; color: #0f172a;">Hostel Rooms & Roommate Rosters</h3>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="toggleRoomManager()">Close</button>
             </div>
-        {% endif %}
+
+            <!-- Existing Rooms List -->
+            <div style="margin-top: 12px;">
+                {% if rooms|length == 0 %}
+                    <p class="text-muted" style="font-size: 13px;">No saved rooms yet. Add your room below to easily split bills with your roommates.</p>
+                {% else %}
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                        {% for rm in rooms %}
+                            <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <strong style="color: #0f172a; font-size: 14px;">{{ rm.name }}</strong>
+                                    <a href="/rooms/delete/{{ rm.id }}" style="color: #ef4444; font-size: 12px; text-decoration: none;" onclick="return confirm('Delete room {{ rm.name }}?');">Delete</a>
+                                </div>
+                                <div style="font-size: 12px; color: #64748b; line-height: 1.4;">
+                                    <strong>Members:</strong> {{ rm.members | join(', ') }}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- Add New Room Form -->
+            <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 6px;">
+                <h4 style="font-size: 13px; margin: 0 0 10px 0; color: #334155;">+ Add New Room</h4>
+                <form method="POST" action="/rooms/add" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+                    <div style="flex: 1; min-width: 150px;">
+                        <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Room Name *</label>
+                        <input type="text" name="room_name" placeholder="e.g. Room 204, Flat B-2" required style="width: 100%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 13px;">
+                    </div>
+                    <div style="flex: 2; min-width: 220px;">
+                        <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Roommates (Comma separated) *</label>
+                        <input type="text" name="members" placeholder="e.g. Ali, Ahmed, Saad, Hamza" required style="width: 100%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 13px;">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" style="height: 33px;">Save Room</button>
+                </form>
+            </div>
+        </div>
 
         <!-- Split Calculator Form -->
         <div class="card form-card-wide">
             <div class="card-header">
                 <h3>Calculate a New Split</h3>
             </div>
-            <form method="POST" action="/split-expense" class="ledger-form">
+            <form method="POST" action="/split-expense" class="ledger-form" id="split-form">
+                
                 <div class="form-grid-3">
                     <div class="form-group">
                         <label for="title">Expense Title *</label>
-                        <input type="text" id="title" name="title" placeholder="e.g. Mess Dinner, Room WiFi, Groceries" required>
+                        <input type="text" id="title" name="title" placeholder="e.g. Mess Dinner, WiFi Bill, Water Dispenser" value="{{ form_data.title if form_data else '' }}" required>
                     </div>
 
                     <div class="form-group">
                         <label for="total_amount">Total Bill Amount (Rs.) *</label>
-                        <input type="number" id="total_amount" name="total_amount" step="any" min="0.01" placeholder="e.g. 3000" required>
+                        <input type="number" id="total_amount" name="total_amount" step="any" min="0.01" placeholder="e.g. 3000" value="{{ form_data.total_amount if form_data else '' }}" required oninput="onTotalAmountChanged()">
                     </div>
 
                     <div class="form-group">
-                        <label for="payer">Who Paid the Full Bill? *</label>
-                        <input type="text" id="payer" name="payer" value="You" placeholder="e.g. You, Ali" required>
+                        <label for="date">Date *</label>
+                        <input type="date" id="date" name="date" value="{{ form_data.date if form_data else today }}" required>
                     </div>
                 </div>
 
                 <div class="form-grid-2">
                     <div class="form-group">
-                        <label for="split_type">Split Type *</label>
-                        <select id="split_type" name="split_type" onchange="toggleSplitInputs()">
-                            <option value="equal" selected>Equal Split (Divide equally)</option>
-                            <option value="custom">Custom Amounts (Different shares)</option>
+                        <label for="split_mode">Split Mode *</label>
+                        <select id="split_mode" name="split_mode" onchange="toggleSplitMode()">
+                            <option value="room" {% if (form_data and form_data.split_mode == 'room') or (not form_data and rooms|length > 0) %}selected{% endif %}>Mode A: Split with a Room</option>
+                            <option value="people" {% if (form_data and form_data.split_mode == 'people') or (not form_data and rooms|length == 0) %}selected{% endif %}>Mode B: Split with Other People</option>
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label for="date">Date *</label>
-                        <input type="date" id="date" name="date" value="{{ today }}" required>
+                        <label for="split_type">Split Type *</label>
+                        <select id="split_type" name="split_type" onchange="toggleSplitType()">
+                            <option value="equal" {% if not form_data or form_data.split_type == 'equal' %}selected{% endif %}>Equal Split (Divide equally)</option>
+                            <option value="custom" {% if form_data and form_data.split_type == 'custom' %}selected{% endif %}>Custom Amounts (Different shares)</option>
+                        </select>
                     </div>
                 </div>
 
-                <!-- Equal Split Input -->
-                <div id="equal-inputs" class="form-group">
-                    <label for="people">People Names (Comma separated)</label>
-                    <input type="text" id="people" name="people" placeholder="e.g. You, Ali, Ahmed" value="You, Roommate 1, Roommate 2">
-                    <small class="form-hint">Enter the names of everyone sharing this bill separated by commas.</small>
+                <!-- Mode A: Room Selection & Roster -->
+                <div id="mode-room-section" class="form-group" style="{% if (form_data and form_data.split_mode == 'people') or (not form_data and rooms|length == 0) %}display: none;{% endif %} background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px;">
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label for="room_id" style="font-weight: 600;">Select Room</label>
+                        <select id="room_id" name="room_id" onchange="onRoomChanged()" style="max-width: 300px;">
+                            {% for rm in rooms %}
+                                <option value="{{ rm.id }}" data-members="{{ rm.members | join(',') }}" {% if form_data and form_data.room_id == rm.id|string %}selected{% endif %}>{{ rm.name }} ({{ rm.members|length }} members)</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <label style="font-weight: 600; font-size: 13px; display: block; margin-bottom: 6px;">
+                        Select Participants:
+                        <small class="text-muted" style="font-weight: normal; margin-left: 6px;">(Check everyone sharing this bill)</small>
+                    </label>
+
+                    <div id="room-members-checklist" style="display: flex; gap: 14px; flex-wrap: wrap;">
+                        <!-- Injected via JavaScript based on selected room -->
+                    </div>
                 </div>
 
-                <!-- Custom Split Input -->
-                <div id="custom-inputs" class="form-group" style="display: none;">
-                    <label for="custom_breakdown">Custom Shares (One per line: "Name: Amount")</label>
-                    <textarea id="custom_breakdown" name="custom_breakdown" rows="4" placeholder="Ali: 500&#10;Ahmed: 1000&#10;You: 1500"></textarea>
-                    <small class="form-hint">Format each line as Name: Amount (e.g. Ali: 500).</small>
+                <!-- Mode B: Other People Input -->
+                <div id="mode-people-section" class="form-group" style="{% if (not form_data and rooms|length > 0) or (form_data and form_data.split_mode == 'room') %}display: none;{% endif %} background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px;">
+                    <label for="custom_people" style="font-weight: 600; font-size: 13px;">People Sharing This Bill (Comma separated) *</label>
+                    <input type="text" id="custom_people" name="custom_people" placeholder="e.g. You, Ali, Ahmed, Saad" value="{{ form_data.custom_people if form_data else 'You, Ali' }}" oninput="onCustomPeopleChanged()" style="margin-top: 4px;">
+                    
+                    {% if known_people|length > 0 %}
+                        <div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                            <span class="text-muted" style="font-size: 12px;">Quick add friends:</span>
+                            {% for p in known_people %}
+                                <button type="button" class="category-chip" onclick="addPersonToSplit('{{ p }}')">+ {{ p }}</button>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Payer Selection (Who Paid?) -->
+                <div class="form-group" style="margin-top: 14px;">
+                    <label for="payer" style="font-weight: 600;">Who Paid the Full Bill? *</label>
+                    <select id="payer" name="payer" onchange="updatePayerState()" style="max-width: 320px;">
+                        <option value="You" selected>You (Paid from pocket)</option>
+                        <!-- Other people injected dynamically -->
+                    </select>
+                    <small class="form-hint" style="display: block; margin-top: 4px;">
+                        Note: The payer can be unselected from participants above if they only paid on behalf of others!
+                    </small>
+                </div>
+
+                <!-- Custom Split Breakdown Inputs Container -->
+                <div id="custom-shares-container" style="{% if not form_data or form_data.split_type != 'custom' %}display: none;{% endif %} margin-top: 14px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 14px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4 style="font-size: 13px; margin: 0; color: #0f172a;">Custom Share per Person (Rs.)</h4>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="autoDistributeEqualShares()" style="font-size: 11px; padding: 3px 8px;">Auto-Split Remaining</button>
+                    </div>
+                    <div id="custom-shares-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+                        <!-- Injected dynamically per participant -->
+                    </div>
+                    <div id="custom-shares-balance-bar" class="shares-balance-bar shares-balance-match" style="margin-top: 12px; display: none;"></div>
                 </div>
 
                 <!-- Automatic Sync & Accounting Settings -->
-                <div class="sync-settings-box">
-                    <div class="card-header" style="margin-bottom: 6px;">
-                        <h3 style="font-size: 13px; color: #1e3a8a;">Automatic Sync & Accounting (No Double-Counting)</h3>
+                <div class="sync-settings-box" style="margin-top: 16px;">
+                    <div class="card-header" style="margin-bottom: 8px;">
+                        <h3 style="font-size: 13px; color: #0f172a;">Automatic Accounting (No Double-Counting)</h3>
                     </div>
                     <div class="form-grid-2">
                         <div class="form-group form-checkbox" style="margin-bottom: 6px;">
                             <label>
-                                <input type="checkbox" name="sync_money_owed" value="yes" checked>
-                                <strong>Automatically record debts in Money Owed</strong>
+                                <input type="checkbox" name="sync_money_owed" value="yes" {% if not form_data or form_data.sync_money_owed %}checked{% endif %}>
+                                <strong>Record debts in Money Owed</strong>
                             </label>
-                            <small class="form-hint">Creates pending debts so you can track and collect later.</small>
+                            <small class="form-hint">Automatically creates pending debts with split link for easy tracking.</small>
                         </div>
 
                         <div class="form-group form-checkbox" style="margin-bottom: 6px;">
                             <label>
-                                <input type="checkbox" name="sync_expense" value="yes" checked>
-                                <strong>Record only your personal share in Expenses</strong>
+                                <input type="checkbox" name="sync_expense" value="yes" {% if not form_data or form_data.sync_expense %}checked{% endif %}>
+                                <strong>Record your personal share in Expenses</strong>
                             </label>
-                            <small class="form-hint">Roommates' shares won't inflate your personal living expenses.</small>
+                            <small class="form-hint">Only your share will be added to expenses (roommates' shares won't inflate your spending).</small>
                         </div>
                     </div>
 
-                    <div class="form-grid-2" style="margin-top: 8px;">
+                    <div class="form-grid-2" style="margin-top: 10px;">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="expense_category">Category for Your Share</label>
-                            <input type="text" id="expense_category" name="expense_category" value="Food / Mess" placeholder="e.g. Food / Mess, Utilities">
+                            <input type="text" id="expense_category" name="expense_category" value="{{ form_data.expense_category if form_data else 'Food / Mess' }}" placeholder="e.g. Food / Mess, Utilities, Internet">
                         </div>
 
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="payment_method">Payment Method Used</label>
+                            {% set current_pm = form_data.payment_method if form_data else 'Cash' %}
                             <select id="payment_method" name="payment_method">
-                                <option value="Cash" selected>Cash</option>
-                                <option value="Easypaisa">Easypaisa</option>
-                                <option value="JazzCash">JazzCash</option>
-                                <option value="Bank / Card">Bank / Card</option>
-                                <option value="Other">Other</option>
+                                <option value="Cash" {% if current_pm == 'Cash' %}selected{% endif %}>Cash</option>
+                                <option value="Easypaisa" {% if current_pm == 'Easypaisa' %}selected{% endif %}>Easypaisa</option>
+                                <option value="JazzCash" {% if current_pm == 'JazzCash' %}selected{% endif %}>JazzCash</option>
+                                <option value="Bank / Card" {% if current_pm == 'Bank / Card' %}selected{% endif %}>Bank / Card</option>
+                                <option value="Other" {% if current_pm == 'Other' %}selected{% endif %}>Other</option>
                             </select>
                         </div>
                     </div>
                 </div>
 
-                <div class="form-group form-checkbox" style="margin-top: 12px;">
+                <div class="form-group form-checkbox" style="margin-top: 14px;">
                     <label>
-                        <input type="checkbox" name="save_history" value="yes" checked>
+                        <input type="checkbox" name="save_history" value="yes" {% if not form_data or form_data.save_history %}checked{% endif %}>
                         Save this split calculation to history
                     </label>
                 </div>
 
-                <button type="submit" class="btn btn-primary">Calculate & Sync Split</button>
+                <button type="submit" class="btn btn-primary" style="margin-top: 6px;">Calculate & Record Split</button>
             </form>
         </div>
 
         <!-- Calculation Result -->
         {% if result %}
-            <div class="card result-card">
+            <div class="card result-card" style="margin-top: 24px;">
                 <div class="card-header">
-                    <h2>Split Result: {{ result['title'] }}</h2>
-                    <span class="badge badge-settled">{{ result['split_type']|capitalize }} Split</span>
+                    <h2>Split Summary: {{ result['title'] }}</h2>
+                    <span class="badge badge-settled">{{ result['total_amount'] | rupees }} total</span>
                 </div>
 
-                <p><strong>Total Bill:</strong> {{ result['total_amount'] | rupees }} &bull; <strong>Paid by:</strong> {{ result['payer'] }}</p>
+                <p style="font-size: 14px; margin-bottom: 16px;">
+                    <strong>Total Bill:</strong> {{ result['total_amount'] | rupees }} &bull;
+                    <strong>Paid by:</strong> {{ result['payer'] }} &bull;
+                    <strong>Date:</strong> {{ result['date'] }}
+                </p>
 
                 <div class="breakdown-grid">
                     {% for item in result['breakdown'] %}
@@ -152,44 +253,46 @@
                             <h4>{{ item['name'] }}</h4>
                             <p class="stat-number">{{ item['share'] | rupees }}</p>
                             <span class="card-subtext">
-                                {% if item['is_payer'] %}Paid the total bill{% else %}Share of the bill{% endif %}
+                                {% if item['is_payer'] %}Paid the total bill{% else %}Share of this bill{% endif %}
                             </span>
-                            {% if not item['is_payer'] and item['share'] > 0 %}
-                                <form method="POST" action="/split-expense/add-to-money-owed" style="margin-top: 8px;">
-                                    <input type="hidden" name="person" value="{{ item['name'] }}">
-                                    <input type="hidden" name="amount" value="{{ item['share'] }}">
-                                    <input type="hidden" name="type" value="they_owe_me">
-                                    <input type="hidden" name="reason" value="Split: {{ result['title'] }}">
-                                    <input type="hidden" name="date" value="{{ result['date'] }}">
-                                    <button type="submit" class="btn btn-sm btn-outline">+ Re-add to Money Owed</button>
-                                </form>
-                            {% endif %}
                         </div>
                     {% endfor %}
                 </div>
 
-                <div class="owes-box">
+                <div class="owes-box" style="margin-top: 16px;">
                     <h3>Who Owes Whom:</h3>
                     <ul>
                         {% for line in result['who_owes_whom'] %}
                             <li><strong>{{ line }}</strong></li>
                         {% else %}
-                            <li>All settled or only 1 person paid their own share.</li>
+                            <li>All settled or only 1 person was involved.</li>
                         {% endfor %}
                     </ul>
+                </div>
+
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid #f1f5f9;">
+                    <a href="/split-expense/download-pdf/{{ result['id'] }}" class="btn btn-sm btn-outline">
+                        📥 Download PDF Receipt
+                    </a>
+                    <button type="button" class="btn btn-sm btn-whatsapp" onclick="shareSplitReceipt({{ result['id'] }}, '{{ result['title']|replace("'", "\\'") }}', '{{ result['total_amount'] }}', '{{ result['payer']|replace("'", "\\'") }}', '{{ result['date'] }}')">
+                        💬 Share via WhatsApp
+                    </button>
                 </div>
             </div>
         {% endif %}
 
         <!-- Splits History -->
-        <div class="section-header">
-            <h2>Saved Splits History ({{ splits_history|length }})</h2>
+        <div class="section-header" style="margin-top: 30px;">
+            <div>
+                <h2>Saved Splits History ({{ splits_history|length }})</h2>
+                <small class="text-muted">Deleting a split removes only its generated debts, leaving manual records intact</small>
+            </div>
         </div>
 
         <div class="expenses">
             {% if splits_history|length == 0 %}
                 <div class="empty-state">
-                    <p>No saved splits in history yet.</p>
+                    <p>No split records saved yet.</p>
                 </div>
             {% else %}
                 {% for s in splits_history %}
@@ -197,20 +300,22 @@
                         <div class="expense-main">
                             <div class="expense-title-row">
                                 <h3 class="expense-name">{{ s["title"] }}</h3>
-                                <span class="badge badge-owe-you">{{ s["split_type"]|capitalize }}</span>
+                                <span class="badge badge-owe-you">{{ s.get("split_type", "equal")|capitalize }} Split</span>
                             </div>
                             <p class="expense-meta">Date: {{ s["date"] }} &bull; Paid by: <strong>{{ s["payer"] }}</strong></p>
-                            <div class="split-history-lines">
+                            <div class="split-history-lines" style="margin-top: 6px;">
                                 {% for line in s.get("who_owes_whom", []) %}
-                                    <span class="history-tag">{{ line }}</span>
+                                    <span class="history-tag" style="background: #f1f5f9; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px;">{{ line }}</span>
                                 {% endfor %}
                             </div>
                         </div>
 
                         <div class="expense-right">
                             <div class="expense-amount">{{ s["total_amount"] | rupees }}</div>
-                            <div class="expense-actions">
-                                <a href="/split-expense/delete/{{ s['id'] }}" class="btn btn-sm btn-delete" onclick="return confirm('Delete this split?');">Delete</a>
+                            <div class="expense-actions" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                                <a href="/split-expense/download-pdf/{{ s['id'] }}" class="btn btn-sm btn-outline" title="Download PDF">PDF</a>
+                                <button type="button" class="btn btn-sm btn-whatsapp" title="Share via WhatsApp" onclick="shareSplitReceipt({{ s['id'] }}, '{{ s['title']|replace("'", "\\'") }}', '{{ s['total_amount'] }}', '{{ s['payer']|replace("'", "\\'") }}', '{{ s['date'] }}')">Share</button>
+                                <a href="/split-expense/delete/{{ s['id'] }}" class="btn btn-sm btn-delete" onclick="return confirm('Delete split \'{{ s.title }}\'? Linked debts and personal share will also be removed.');">Delete</a>
                             </div>
                         </div>
                     </div>
@@ -221,18 +326,276 @@
     </main>
 
     <script>
-        function toggleSplitInputs() {
-            var splitType = document.getElementById("split_type").value;
-            var equalDiv = document.getElementById("equal-inputs");
-            var customDiv = document.getElementById("custom-inputs");
-            if (splitType === "equal") {
-                equalDiv.style.display = "block";
-                customDiv.style.display = "none";
-            } else {
-                equalDiv.style.display = "none";
-                customDiv.style.display = "block";
+        var INITIAL_FORM_DATA = {{ form_data|tojson if form_data else 'null' }};
+
+        function toggleRoomManager() {
+            var panel = document.getElementById("room-manager-panel");
+            if (panel) {
+                panel.style.display = panel.style.display === "none" ? "block" : "none";
             }
         }
+
+        function toggleSplitMode() {
+            var mode = document.getElementById("split_mode").value;
+            var roomSec = document.getElementById("mode-room-section");
+            var peopleSec = document.getElementById("mode-people-section");
+            if (mode === "room") {
+                roomSec.style.display = "block";
+                peopleSec.style.display = "none";
+                onRoomChanged();
+            } else {
+                roomSec.style.display = "none";
+                peopleSec.style.display = "block";
+                onCustomPeopleChanged();
+            }
+        }
+
+        function toggleSplitType() {
+            var type = document.getElementById("split_type").value;
+            var customBox = document.getElementById("custom-shares-container");
+            if (type === "custom") {
+                customBox.style.display = "block";
+                buildCustomShareInputs();
+            } else {
+                customBox.style.display = "none";
+            }
+        }
+
+        function getActiveParticipants() {
+            var mode = document.getElementById("split_mode").value;
+            var participants = [];
+            if (mode === "room") {
+                var checkboxes = document.querySelectorAll('input[name="room_participants"]:checked');
+                checkboxes.forEach(function(cb) {
+                    participants.push(cb.value);
+                });
+            } else {
+                var val = document.getElementById("custom_people").value;
+                val.split(",").forEach(function(p) {
+                    var clean = p.trim();
+                    if (clean && !participants.includes(clean)) {
+                        participants.push(clean);
+                    }
+                });
+            }
+            return participants;
+        }
+
+        function onRoomChanged() {
+            var sel = document.getElementById("room_id");
+            if (!sel || !sel.options[sel.selectedIndex]) return;
+            var membersAttr = sel.options[sel.selectedIndex].getAttribute("data-members") || "";
+            var members = membersAttr.split(",").map(function(m) { return m.trim(); }).filter(Boolean);
+
+            var checklist = document.getElementById("room-members-checklist");
+            checklist.innerHTML = "";
+
+            // Always offer "You" first
+            var allCandidates = ["You"].concat(members.filter(function(m) { return m.toLowerCase() !== "you"; }));
+
+            allCandidates.forEach(function(person) {
+                var label = document.createElement("label");
+                label.style.display = "flex";
+                label.style.alignItems = "center";
+                label.style.gap = "6px";
+                label.style.fontSize = "13px";
+                label.style.fontWeight = "500";
+                label.style.cursor = "pointer";
+
+                var cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.name = "room_participants";
+                cb.value = person;
+
+                // Restore preserved participants if returning from validation error
+                if (INITIAL_FORM_DATA && Array.isArray(INITIAL_FORM_DATA.room_participants) && INITIAL_FORM_DATA.room_participants.length > 0) {
+                    cb.checked = INITIAL_FORM_DATA.room_participants.includes(person);
+                } else {
+                    cb.checked = true;
+                }
+
+                cb.onchange = function() {
+                    updatePayerOptions();
+                    buildCustomShareInputs();
+                };
+
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(person));
+                checklist.appendChild(label);
+            });
+
+            updatePayerOptions();
+            buildCustomShareInputs();
+        }
+
+        function onCustomPeopleChanged() {
+            updatePayerOptions();
+            buildCustomShareInputs();
+        }
+
+        function onTotalAmountChanged() {
+            var splitType = document.getElementById("split_type").value;
+            if (splitType === "custom") {
+                updateCustomSharesBalance();
+            }
+        }
+
+        function addPersonToSplit(name) {
+            var input = document.getElementById("custom_people");
+            var current = input.value.split(",").map(function(x) { return x.trim(); }).filter(Boolean);
+            if (!current.some(function(x) { return x.toLowerCase() === name.toLowerCase(); })) {
+                current.push(name);
+                input.value = current.join(", ");
+                onCustomPeopleChanged();
+            }
+        }
+
+        function updatePayerOptions() {
+            var payerSel = document.getElementById("payer");
+            var currentPayer = payerSel.value;
+            if (INITIAL_FORM_DATA && INITIAL_FORM_DATA.payer && !payerSel._restored) {
+                currentPayer = INITIAL_FORM_DATA.payer;
+                payerSel._restored = true;
+            }
+
+            var participants = getActiveParticipants();
+            var candidates = ["You"];
+            participants.forEach(function(p) {
+                if (!candidates.includes(p)) candidates.push(p);
+            });
+
+            payerSel.innerHTML = "";
+            candidates.forEach(function(cand) {
+                var opt = document.createElement("option");
+                opt.value = cand;
+                opt.textContent = (cand === "You") ? "You (Paid from pocket)" : cand;
+                if (cand === currentPayer) opt.selected = true;
+                payerSel.appendChild(opt);
+            });
+        }
+
+        function buildCustomShareInputs() {
+            var splitType = document.getElementById("split_type").value;
+            if (splitType !== "custom") return;
+
+            var container = document.getElementById("custom-shares-grid");
+            container.innerHTML = "";
+
+            var participants = getActiveParticipants();
+            var totalAmt = parseFloat(document.getElementById("total_amount").value) || 0;
+            var perHead = participants.length > 0 ? (totalAmt / participants.length).toFixed(2) : 0;
+
+            participants.forEach(function(p) {
+                var box = document.createElement("div");
+                box.className = "form-group";
+                box.style.marginBottom = "0";
+
+                var lbl = document.createElement("label");
+                lbl.style.fontSize = "12px";
+                lbl.style.fontWeight = "600";
+                lbl.textContent = p + " (Rs.)";
+
+                var inp = document.createElement("input");
+                inp.type = "number";
+                inp.name = "share_" + p;
+                inp.step = "any";
+                inp.min = "0";
+                inp.placeholder = perHead;
+                inp.style.fontSize = "13px";
+
+                // Check if restored from failed submission
+                if (INITIAL_FORM_DATA && INITIAL_FORM_DATA.shares && INITIAL_FORM_DATA.shares[p] !== undefined && INITIAL_FORM_DATA.shares[p] !== "") {
+                    inp.value = INITIAL_FORM_DATA.shares[p];
+                } else {
+                    inp.value = perHead;
+                }
+
+                inp.oninput = updateCustomSharesBalance;
+
+                box.appendChild(lbl);
+                box.appendChild(inp);
+                container.appendChild(box);
+            });
+
+            updateCustomSharesBalance();
+        }
+
+        function autoDistributeEqualShares() {
+            var participants = getActiveParticipants();
+            var totalAmt = parseFloat(document.getElementById("total_amount").value) || 0;
+            if (participants.length === 0 || totalAmt <= 0) return;
+
+            var perHead = (totalAmt / participants.length).toFixed(2);
+            participants.forEach(function(p) {
+                var inp = document.querySelector('input[name="share_' + p + '"]');
+                if (inp) {
+                    inp.value = perHead;
+                }
+            });
+            updateCustomSharesBalance();
+        }
+
+        function updateCustomSharesBalance() {
+            var splitType = document.getElementById("split_type").value;
+            var bar = document.getElementById("custom-shares-balance-bar");
+            if (splitType !== "custom" || !bar) {
+                if (bar) bar.style.display = "none";
+                return;
+            }
+
+            var totalAmt = parseFloat(document.getElementById("total_amount").value) || 0;
+            var inputs = document.querySelectorAll('#custom-shares-grid input');
+            var sum = 0;
+            inputs.forEach(function(inp) {
+                sum += parseFloat(inp.value) || 0;
+            });
+
+            sum = Math.round(sum * 100) / 100;
+            totalAmt = Math.round(totalAmt * 100) / 100;
+            var diff = Math.round((totalAmt - sum) * 100) / 100;
+
+            bar.style.display = "flex";
+            if (Math.abs(diff) < 0.01) {
+                bar.className = "shares-balance-bar shares-balance-match";
+                bar.innerHTML = "<span>✓ Perfect match:</span> Sum of shares (Rs. " + sum.toLocaleString() + ") equals total bill (Rs. " + totalAmt.toLocaleString() + ")";
+            } else if (diff > 0) {
+                bar.className = "shares-balance-bar shares-balance-under";
+                bar.innerHTML = "<span>⚠ Unallocated balance:</span> Rs. " + diff.toLocaleString() + " remaining to assign (Assigned: Rs. " + sum.toLocaleString() + " of Rs. " + totalAmt.toLocaleString() + ")";
+            } else {
+                bar.className = "shares-balance-bar shares-balance-over";
+                bar.innerHTML = "<span>⚠ Exceeds total:</span> Shares sum to Rs. " + sum.toLocaleString() + ", exceeding total bill by Rs. " + Math.abs(diff).toLocaleString();
+            }
+        }
+
+        function shareSplitReceipt(id, title, total, payer, date) {
+            var pdfUrl = '/split-expense/pdf/' + id;
+            var downloadUrl = '/split-expense/download-pdf/' + id;
+            var fileName = 'Split_Receipt_' + id + '.pdf';
+            var subject = 'Split Bill Receipt: ' + title;
+            var text = 'Hostelite Finance — Split Bill Receipt\n' +
+                       'Bill: ' + title + '\n' +
+                       'Total: Rs. ' + Number(total).toLocaleString() + '\n' +
+                       'Paid by: ' + payer + '\n' +
+                       'Date: ' + date + '\n\n' +
+                       'PDF receipt has been downloaded to your device. Please find the attached PDF file.';
+            shareRecordPdf(pdfUrl, downloadUrl, fileName, subject, text);
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            var mode = document.getElementById("split_mode").value;
+            if (mode === "room") {
+                onRoomChanged();
+            } else {
+                onCustomPeopleChanged();
+            }
+
+            var type = document.getElementById("split_type").value;
+            if (type === "custom") {
+                var customBox = document.getElementById("custom-shares-container");
+                if (customBox) customBox.style.display = "block";
+                buildCustomShareInputs();
+            }
+        });
     </script>
 
 </body>

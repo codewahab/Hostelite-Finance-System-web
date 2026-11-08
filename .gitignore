@@ -1,19 +1,38 @@
-
 # Python cache files
 __pycache__/
 *.py[cod]
+*$py.class
 
 # Virtual environments
 venv/
 .venv/
+env/
 
-# Private financial data
+# Private financial data & backups
 allowance.json
 expenses.json
 borrowed_lent.json
 friends.json
 money_owed.json
 splits.json
+rooms.json
+users.json
+user_data/
+*.db
+*.sqlite
+*.sqlite3
 
 # Environment secrets
 .env
+.env.*
+!.env.example
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
