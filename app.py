@@ -40,8 +40,12 @@ def load_dotenv_file(filepath=None):
 load_dotenv_file()
 
 def is_production():
-    """Detect if running in production (e.g. on Render or with FLASK_ENV=production)."""
-    return bool(os.environ.get("RENDER") or os.environ.get("FLASK_ENV") == "production")
+    """Detect if running in production (Render, Vercel, or with FLASK_ENV=production)."""
+    return bool(
+        os.environ.get("RENDER")
+        or os.environ.get("VERCEL")
+        or os.environ.get("FLASK_ENV") == "production"
+    )
 
 app = Flask(__name__)
 
@@ -73,15 +77,15 @@ if database_url and database_url.startswith("postgres://"):
 if database_url and (os.environ.get("STORAGE_BACKEND", "").lower() != "json" or is_production()):
     app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    engine_opts = {
+        "pool_pre_ping": True,
+    }
     if ":6543" in database_url:
-        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-            "connect_args": {"options": "-c search_path=public"},
-            "pool_pre_ping": True,
-        }
-    else:
-        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-            "pool_pre_ping": True,
-        }
+        engine_opts["connect_args"] = {"options": "-c search_path=public"}
+    if is_production():
+        from sqlalchemy.pool import NullPool
+        engine_opts["poolclass"] = NullPool
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_opts
     db.init_app(app)
 
 # -------------------------------------------------------------
