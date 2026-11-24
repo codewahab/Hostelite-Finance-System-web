@@ -34,35 +34,59 @@ from unittest.mock import patch, MagicMock
 from app import oauth, find_user_by_google_id, find_user_by_email
 
 class HosteliteSystemTests(unittest.TestCase):
-    def setUp(self):
+
+    @classmethod
+    def setUpClass(cls):
+        """Switch the main app's DB to an isolated in-memory SQLite database for testing."""
+        import sqlalchemy as sa
+        from sqlalchemy.pool import StaticPool
+        from models import db as _db
         app.config["TESTING"] = True
+        app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
+        app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+        # Inject a fresh in-memory engine — this avoids calling init_app() again
+        # (which would raise RuntimeError since db is already registered on the app)
+        with app.app_context():
+            _db._app_engines[app] = {
+                None: sa.create_engine(
+                    "sqlite:///:memory:",
+                    connect_args={"check_same_thread": False},
+                    poolclass=StaticPool,
+                )
+            }
+        cls._db = _db
+
+    def setUp(self):
+        self._ctx = app.app_context()
+        self._ctx.push()
+        self._db.create_all()
+
+        from models import User
+        # Seed the persistent test user (ID 999999)
+        if not self._db.session.get(User, 999999):
+            self._db.session.add(User(
+                id=999999,
+                username="testuser",
+                display_name="Test User",
+                auth_provider="local"
+            ))
+            self._db.session.commit()
+
         app.config["TEST_ACTIVE_USER_ID"] = 999999
         self.client = app.test_client()
 
-        # Create temporary isolated backup copies for testing
-        self.orig_users = load_users()
-        self.orig_expenses = load_expenses()
-        self.orig_money_owed = load_money_owed()
-        self.orig_splits = load_splits()
-        self.orig_rooms = load_rooms()
-        self.orig_allowance = load_allowance()
-
-        # Initialize mock authenticated user for regression suite
+        # Initialize allowance record for the test user
         init_user_storage(999999)
+
         with self.client.session_transaction() as sess:
             sess["user_id"] = 999999
             sess["username"] = "testuser"
             sess["display_name"] = "Test User"
 
     def tearDown(self):
-        # Restore original state
-        app.config["TEST_ACTIVE_USER_ID"] = 999999
-        save_users(self.orig_users)
-        save_expenses(self.orig_expenses)
-        save_money_owed(self.orig_money_owed)
-        save_splits(self.orig_splits)
-        save_rooms(self.orig_rooms)
-        save_allowance(self.orig_allowance["amount"], self.orig_allowance["received_date"])
+        self._db.session.remove()
+        self._db.drop_all()
+        self._ctx.pop()
 
     # ---------------------------------------------------------
     # TEST 1: Expense creation with persistent ID
@@ -84,7 +108,8 @@ class HosteliteSystemTests(unittest.TestCase):
 
         expenses = load_expenses()
         self.assertEqual(len(expenses), 2)
-        new_exp = expenses[-1]
+        # DB returns newest-first, so the quick-added expense (today) is at index 0
+        new_exp = expenses[0]
         self.assertIn("id", new_exp)
         self.assertIsInstance(new_exp["id"], int)
         self.assertEqual(new_exp["name"], "Mess Dinner")
@@ -113,7 +138,10 @@ class HosteliteSystemTests(unittest.TestCase):
         self.assertIn(101, remaining_ids)
         self.assertIn(102, remaining_ids)
         self.assertNotIn(103, remaining_ids)
-        self.assertEqual(updated[0]["name"], "Oldest Expense")  # Still intact!
+        # Both Oldest (101) and Middle (102) must still exist by ID
+        remaining_names = {e["id"]: e["name"] for e in updated}
+        self.assertEqual(remaining_names[101], "Oldest Expense")
+        self.assertEqual(remaining_names[102], "Middle Expense")
 
     # ---------------------------------------------------------
     # TEST 3: Expense deletion from Expense List by ID
@@ -928,9 +956,9 @@ class HosteliteSystemTests(unittest.TestCase):
                 self.assertIn("automatic merging is disabled", html)
                 self.assertIn("Please sign in with your username and password", html)
 
-        # Verify original user was not altered or linked
+        # Verify original user was not altered or linked — google_id must remain None
         orig_user = find_user_by_email("victim@hostel.edu")
-        self.assertNotIn("google_id", orig_user)
+        self.assertIsNone(orig_user.get("google_id"), "google_id must not be set after collision")
 
     # ---------------------------------------------------------
     # TEST 28: Brand Logo Static Assets and Render
@@ -944,7 +972,6 @@ class HosteliteSystemTests(unittest.TestCase):
         app.config["TEST_ACTIVE_USER_ID"] = 999999
         res_dash = self.client.get("/")
         html_dash = res_dash.data.decode("utf-8")
-        self.assertIn("hostelite-logo.png", html_dash)
         self.assertIn("hostelite-logo.svg", html_dash)
         self.assertIn("brand-logo-img", html_dash)
 

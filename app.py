@@ -74,7 +74,7 @@ database_url = os.environ.get("DATABASE_URL")
 if database_url and database_url.startswith("postgres://"):
     database_url = "postgresql://" + database_url[len("postgres://"):]
 
-if database_url and (os.environ.get("STORAGE_BACKEND", "").lower() != "json" or is_production()):
+if database_url:
     app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     engine_opts = {
@@ -85,8 +85,18 @@ if database_url and (os.environ.get("STORAGE_BACKEND", "").lower() != "json" or 
     if is_production():
         from sqlalchemy.pool import NullPool
         engine_opts["poolclass"] = NullPool
+    elif "sqlite" in database_url:
+        from sqlalchemy.pool import StaticPool
+        engine_opts["poolclass"] = StaticPool
+        engine_opts["connect_args"] = {"check_same_thread": False}
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_opts
     db.init_app(app)
+
+if is_production() and not app.config.get("SQLALCHEMY_DATABASE_URI"):
+    raise RuntimeError(
+        "CRITICAL: DATABASE_URL is not configured in production. "
+        "Supabase PostgreSQL is required."
+    )
 
 # -------------------------------------------------------------
 # Google OAuth 2.0 Configuration (Authlib)
@@ -160,24 +170,13 @@ def normalize_person_name(name, existing_records=None, existing_rooms=None):
     # Default to Title Case
     return clean.title()
 
-USERS_FILE = "users.json"
-USER_STORAGE_BASE = "user_data"
-
 def is_db_active():
     """Check if database storage backend is configured and active."""
     if not has_app_context():
         return False
-    if app.config.get("TESTING") and not app.config.get("TEST_DATABASE"):
-        return False
-    if is_production():
-        if not app.config.get("SQLALCHEMY_DATABASE_URI"):
-            raise RuntimeError(
-                "CRITICAL: DATABASE_URL is not configured in production. "
-                "Silently falling back to ephemeral local JSON storage is prohibited."
-            )
-        return True
-    backend = os.environ.get("STORAGE_BACKEND", "").strip().lower()
-    return bool(app.config.get("SQLALCHEMY_DATABASE_URI")) and backend in ("database", "supabase", "postgres", "postgresql")
+    if is_production() and not app.config.get("SQLALCHEMY_DATABASE_URI"):
+        raise RuntimeError("CRITICAL: DATABASE_URL is not configured in production.")
+    return bool(app.config.get("SQLALCHEMY_DATABASE_URI"))
 
 def get_active_user_id(user_id=None):
     """Resolve the active user ID from param, request context, session, or test config."""
@@ -209,125 +208,84 @@ def parse_date(date_val):
         return None
 
 def load_users():
-    """Load all registered users from database or users.json."""
+    """Load all registered users from database."""
     if is_db_active():
         return [u.to_dict() for u in User.query.all()]
-    if is_production():
-        return []
-    try:
-        with open(USERS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+    return []
 
 def save_users(users):
-    """Save registered users to database and backup to users.json."""
-    if is_db_active():
-        try:
-            existing = {u.id: u for u in User.query.all()}
-            for u in users:
-                u_id = int(u["id"])
-                created_dt = parse_date(u.get("created_at"))
-                created_datetime = datetime.combine(created_dt, datetime.min.time()) if created_dt else datetime.now(timezone.utc)
-                if u_id in existing:
-                    user_obj = existing[u_id]
-                    user_obj.username = u.get("username", user_obj.username)
-                    user_obj.display_name = u.get("display_name", user_obj.display_name)
-                    user_obj.email = u.get("email") or None
-                    user_obj.email_verified = bool(u.get("email_verified", False))
-                    user_obj.password_hash = u.get("password_hash")
-                    user_obj.google_id = u.get("google_id") or None
-                    user_obj.auth_provider = u.get("auth_provider", "local")
-                else:
-                    new_user = User(
-                        id=u_id,
-                        username=u.get("username"),
-                        display_name=u.get("display_name") or u.get("username"),
-                        email=u.get("email") or None,
-                        email_verified=bool(u.get("email_verified", False)),
-                        password_hash=u.get("password_hash"),
-                        google_id=u.get("google_id") or None,
-                        auth_provider=u.get("auth_provider", "local"),
-                        created_at=created_datetime
-                    )
-                    db.session.add(new_user)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            raise
-    if is_production():
+    """Save registered users to database."""
+    if not is_db_active():
         return
     try:
-        with open(USERS_FILE, "w", encoding="utf-8") as f:
-            json.dump(users, f, indent=4)
+        existing = {u.id: u for u in User.query.all()}
+        for u in users:
+            u_id = int(u["id"])
+            created_dt = parse_date(u.get("created_at"))
+            created_datetime = datetime.combine(created_dt, datetime.min.time()) if created_dt else datetime.now(timezone.utc)
+            if u_id in existing:
+                user_obj = existing[u_id]
+                user_obj.username = u.get("username", user_obj.username)
+                user_obj.display_name = u.get("display_name", user_obj.display_name)
+                user_obj.email = u.get("email") or None
+                user_obj.email_verified = bool(u.get("email_verified", False))
+                user_obj.password_hash = u.get("password_hash")
+                user_obj.google_id = u.get("google_id") or None
+                user_obj.auth_provider = u.get("auth_provider", "local")
+            else:
+                new_user = User(
+                    id=u_id,
+                    username=u.get("username"),
+                    display_name=u.get("display_name") or u.get("username"),
+                    email=u.get("email") or None,
+                    email_verified=bool(u.get("email_verified", False)),
+                    password_hash=u.get("password_hash"),
+                    google_id=u.get("google_id") or None,
+                    auth_provider=u.get("auth_provider", "local"),
+                    created_at=created_datetime
+                )
+                db.session.add(new_user)
+        db.session.commit()
     except Exception:
-        pass
+        db.session.rollback()
+        raise
 
 def find_user_by_username(username):
     """Lookup user by case-insensitive username."""
-    if not username:
+    if not username or not is_db_active():
         return None
     clean = username.strip().lower()
-    if is_db_active():
-        u = User.query.filter(db.func.lower(User.username) == clean).first()
-        return u.to_dict() if u else None
-    if is_production():
-        return None
-    users = load_users()
-    for u in users:
-        if u.get("username", "").strip().lower() == clean:
-            return u
-    return None
+    u = User.query.filter(db.func.lower(User.username) == clean).first()
+    return u.to_dict() if u else None
 
 def find_user_by_id(user_id):
     """Lookup user by unique integer or string ID."""
-    if not user_id:
+    if not user_id or not is_db_active():
         return None
-    if is_db_active():
+    try:
         u = db.session.get(User, int(user_id))
         return u.to_dict() if u else None
-    if is_production():
+    except (ValueError, TypeError):
         return None
-    users = load_users()
-    for u in users:
-        if str(u.get("id")) == str(user_id):
-            return u
-    return None
 
 def find_user_by_google_id(google_id):
     """Lookup user by stable Google subject identifier (sub)."""
-    if not google_id:
+    if not google_id or not is_db_active():
         return None
     gid = str(google_id).strip()
-    if is_db_active():
-        u = User.query.filter_by(google_id=gid).first()
-        return u.to_dict() if u else None
-    if is_production():
-        return None
-    users = load_users()
-    for u in users:
-        if str(u.get("google_id", "")).strip() == gid:
-            return u
-    return None
+    u = User.query.filter_by(google_id=gid).first()
+    return u.to_dict() if u else None
 
 def find_user_by_email(email):
     """Lookup user by email address (case-insensitive)."""
-    if not email:
+    if not email or not is_db_active():
         return None
     clean = email.strip().lower()
-    if is_db_active():
-        u = User.query.filter(db.func.lower(User.email) == clean).first()
-        return u.to_dict() if u else None
-    if is_production():
-        return None
-    users = load_users()
-    for u in users:
-        if u.get("email", "").strip().lower() == clean:
-            return u
-    return None
+    u = User.query.filter(db.func.lower(User.email) == clean).first()
+    return u.to_dict() if u else None
 
 def init_user_storage(user_id):
-    """Ensure user directory and initial database records exist."""
+    """Ensure initial database records (allowance) exist for user."""
     u_id = get_active_user_id(user_id)
     if is_db_active() and u_id:
         try:
@@ -337,59 +295,6 @@ def init_user_storage(user_id):
                 db.session.commit()
         except Exception:
             db.session.rollback()
-
-    if is_production():
-        return
-
-    user_dir = os.path.join(USER_STORAGE_BASE, str(user_id))
-    os.makedirs(user_dir, exist_ok=True)
-    
-    files_with_defaults = {
-        "expenses.json": [],
-        "allowance.json": {"allowance": 0.0, "received_date": ""},
-        "money_owed.json": [],
-        "splits.json": [],
-        "rooms.json": []
-    }
-    
-    users = load_users()
-    is_first_user = (len(users) <= 1)
-    
-    for filename, default_val in files_with_defaults.items():
-        user_file = os.path.join(user_dir, filename)
-        if not os.path.exists(user_file):
-            if is_first_user and os.path.exists(filename):
-                try:
-                    with open(filename, "r", encoding="utf-8") as src:
-                        data = json.load(src)
-                    with open(user_file, "w", encoding="utf-8") as dst:
-                        json.dump(data, dst, indent=4)
-                except Exception:
-                    with open(user_file, "w", encoding="utf-8") as dst:
-                        json.dump(default_val, dst, indent=4)
-            else:
-                with open(user_file, "w", encoding="utf-8") as dst:
-                    json.dump(default_val, dst, indent=4)
-
-def get_user_storage_path(filename, user_id=None):
-    """Get the file path for a storage file, scoped to the current user."""
-    if user_id is None:
-        try:
-            if hasattr(g, "user_id") and g.user_id:
-                user_id = g.user_id
-            elif "user_id" in session:
-                user_id = session.get("user_id")
-        except RuntimeError:
-            user_id = None
-
-    if user_id is None and app.config.get("TEST_ACTIVE_USER_ID"):
-        user_id = app.config.get("TEST_ACTIVE_USER_ID")
-
-    if user_id:
-        user_dir = os.path.join(USER_STORAGE_BASE, str(user_id))
-        os.makedirs(user_dir, exist_ok=True)
-        return os.path.join(user_dir, filename)
-    return filename
 
 @app.before_request
 def load_logged_in_user():
@@ -417,363 +322,245 @@ def login_required(f):
 
 
 # -------------------------------------------------------------
-# Storage Helper Functions (Dual-Backend: Database & JSON File)
+# Storage Helper Functions (Supabase PostgreSQL / SQLAlchemy)
 # -------------------------------------------------------------
 def load_expenses(user_id=None):
-    """Load all expenses for user and ensure every expense has a unique id."""
+    """Load all expenses for user ordered by date and id."""
     u_id = get_active_user_id(user_id)
-    if is_db_active():
-        if not u_id:
-            return []
-        records = Expense.query.filter_by(user_id=u_id).order_by(Expense.date.desc(), Expense.id.desc()).all()
-        return [r.to_dict() for r in records]
-    if is_production():
+    if not is_db_active() or not u_id:
         return []
-
-    filepath = get_user_storage_path("expenses.json", user_id)
-    needs_save = False
-    try:
-        with open(filepath, "r", encoding="utf-8") as file:
-            expenses = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        expenses = []
-
-    base_id = int(time.time() * 1000)
-    for idx, exp in enumerate(expenses):
-        if "id" not in exp:
-            exp["id"] = base_id + idx
-            needs_save = True
-
-    if needs_save:
-        save_expenses(expenses, user_id=user_id)
-
-    return expenses
+    records = Expense.query.filter_by(user_id=u_id).order_by(Expense.date.desc(), Expense.id.desc()).all()
+    return [r.to_dict() for r in records]
 
 def save_expenses(expenses, user_id=None):
-    """Save the list of expenses back to database and user's expenses.json."""
+    """Save the list of expenses back to database."""
     u_id = get_active_user_id(user_id)
-    if is_db_active() and u_id:
-        try:
-            existing = {e.id: e for e in Expense.query.filter_by(user_id=u_id).all()}
-            incoming_ids = set()
-            for item in expenses:
-                e_id = int(item.get("id"))
-                incoming_ids.add(e_id)
-                e_date = parse_date(item.get("date")) or date.today()
-                s_id = item.get("split_id")
-                if s_id and not db.session.get(Split, int(s_id)):
-                    s_id = None
-                global_exp = db.session.get(Expense, e_id)
-                if global_exp and global_exp.user_id != u_id:
-                    raise ValueError(f"Cross-user ID collision: Expense ID {e_id} belongs to user {global_exp.user_id}, cannot assign to user {u_id}")
-                if e_id in existing:
-                    exp_obj = existing[e_id]
-                    exp_obj.name = item.get("name", exp_obj.name)
-                    exp_obj.category = item.get("category", exp_obj.category)
-                    exp_obj.amount = Decimal(str(item.get("amount", 0.0)))
-                    exp_obj.date = e_date
-                    exp_obj.note = item.get("note", "") or ""
-                    exp_obj.payment_method = item.get("payment_method", "Cash") or "Cash"
-                    exp_obj.split_id = int(s_id) if s_id else None
-                else:
-                    new_exp = Expense(
-                        id=e_id,
-                        user_id=u_id,
-                        name=item.get("name", "Expense"),
-                        category=item.get("category", "General"),
-                        amount=Decimal(str(item.get("amount", 0.0))),
-                        date=e_date,
-                        note=item.get("note", "") or "",
-                        payment_method=item.get("payment_method", "Cash") or "Cash",
-                        split_id=int(s_id) if s_id else None
-                    )
-                    db.session.add(new_exp)
-            for e_id, record in existing.items():
-                if e_id not in incoming_ids:
-                    db.session.delete(record)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            raise
-    if is_production():
+    if not is_db_active() or not u_id:
         return
-
-    filepath = get_user_storage_path("expenses.json", user_id)
     try:
-        with open(filepath, "w", encoding="utf-8") as file:
-            json.dump(expenses, file, indent=4)
+        existing = {e.id: e for e in Expense.query.filter_by(user_id=u_id).all()}
+        incoming_ids = set()
+        for item in expenses:
+            e_id = int(item.get("id"))
+            incoming_ids.add(e_id)
+            e_date = parse_date(item.get("date")) or date.today()
+            s_id = item.get("split_id")
+            global_exp = db.session.get(Expense, e_id)
+            if global_exp and global_exp.user_id != u_id:
+                raise ValueError(f"Cross-user ID collision: Expense ID {e_id} belongs to user {global_exp.user_id}, cannot assign to user {u_id}")
+            if e_id in existing:
+                exp_obj = existing[e_id]
+                exp_obj.name = item.get("name", exp_obj.name)
+                exp_obj.category = item.get("category", exp_obj.category)
+                exp_obj.amount = Decimal(str(item.get("amount", 0.0)))
+                exp_obj.date = e_date
+                exp_obj.note = item.get("note", "") or ""
+                exp_obj.payment_method = item.get("payment_method", "Cash") or "Cash"
+                exp_obj.split_id = int(s_id) if s_id else None
+            else:
+                new_exp = Expense(
+                    id=e_id,
+                    user_id=u_id,
+                    name=item.get("name", "Expense"),
+                    category=item.get("category", "General"),
+                    amount=Decimal(str(item.get("amount", 0.0))),
+                    date=e_date,
+                    note=item.get("note", "") or "",
+                    payment_method=item.get("payment_method", "Cash") or "Cash",
+                    split_id=int(s_id) if s_id else None
+                )
+                db.session.add(new_exp)
+        for e_id, record in existing.items():
+            if e_id not in incoming_ids:
+                db.session.delete(record)
+        db.session.commit()
     except Exception:
-        pass
+        db.session.rollback()
+        raise
 
 def load_allowance(user_id=None):
-    """Load monthly allowance data from database or user's allowance.json."""
+    """Load monthly allowance data from database."""
     u_id = get_active_user_id(user_id)
-    if is_db_active():
-        if not u_id:
-            return {"amount": 0.0, "allowance": 0.0, "received_date": ""}
-        row = Allowance.query.filter_by(user_id=u_id).first()
-        if row:
-            return row.to_dict()
+    if not is_db_active() or not u_id:
         return {"amount": 0.0, "allowance": 0.0, "received_date": ""}
-    if is_production():
-        return {"amount": 0.0, "allowance": 0.0, "received_date": ""}
-
-    filepath = get_user_storage_path("allowance.json", user_id)
-    try:
-        with open(filepath, "r", encoding="utf-8") as file:
-            data = json.load(file)
-            return {
-                "amount": float(data.get("allowance", 0.0)),
-                "allowance": float(data.get("allowance", 0.0)),
-                "received_date": data.get("received_date", "")
-            }
-    except (FileNotFoundError, json.JSONDecodeError, ValueError):
-        return {"amount": 0.0, "allowance": 0.0, "received_date": ""}
+    row = Allowance.query.filter_by(user_id=u_id).first()
+    if row:
+        return row.to_dict()
+    return {"amount": 0.0, "allowance": 0.0, "received_date": ""}
 
 def save_allowance(amount, received_date="", user_id=None):
-    """Save allowance and received date to database and user's allowance.json."""
+    """Save allowance and received date to database."""
     u_id = get_active_user_id(user_id)
-    parsed_d = parse_date(received_date)
-    rec_date_str = parsed_d.strftime("%Y-%m-%d") if parsed_d else ""
-    if is_db_active() and u_id:
-        try:
-            row = Allowance.query.filter_by(user_id=u_id).first()
-            if not row:
-                row = Allowance(user_id=u_id, amount=Decimal(str(amount)), received_date=parsed_d)
-                db.session.add(row)
-            else:
-                row.amount = Decimal(str(amount))
-                row.received_date = parsed_d
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            raise
-    if is_production():
+    if not is_db_active() or not u_id:
         return
-
-    filepath = get_user_storage_path("allowance.json", user_id)
+    parsed_d = parse_date(received_date)
     try:
-        with open(filepath, "w", encoding="utf-8") as file:
-            json.dump({"allowance": float(amount), "received_date": rec_date_str}, file, indent=4)
+        row = Allowance.query.filter_by(user_id=u_id).first()
+        if not row:
+            row = Allowance(user_id=u_id, amount=Decimal(str(amount)), received_date=parsed_d)
+            db.session.add(row)
+        else:
+            row.amount = Decimal(str(amount))
+            row.received_date = parsed_d
+        db.session.commit()
     except Exception:
-        pass
+        db.session.rollback()
+        raise
 
 def load_money_owed(user_id=None):
-    """Load money owed records from database or user's money_owed.json."""
+    """Load money owed records from database."""
     u_id = get_active_user_id(user_id)
-    if is_db_active():
-        if not u_id:
-            return []
-        records = MoneyOwed.query.filter_by(user_id=u_id).order_by(MoneyOwed.date.desc(), MoneyOwed.id.desc()).all()
-        return [r.to_dict() for r in records]
-    if is_production():
+    if not is_db_active() or not u_id:
         return []
-
-    filepath = get_user_storage_path("money_owed.json", user_id)
-    try:
-        with open(filepath, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+    records = MoneyOwed.query.filter_by(user_id=u_id).order_by(MoneyOwed.date.desc(), MoneyOwed.id.desc()).all()
+    return [r.to_dict() for r in records]
 
 def save_money_owed(records, user_id=None):
-    """Save money owed records to database and user's money_owed.json."""
+    """Save money owed records to database."""
     u_id = get_active_user_id(user_id)
-    if is_db_active() and u_id:
-        try:
-            existing = {m.id: m for m in MoneyOwed.query.filter_by(user_id=u_id).all()}
-            incoming_ids = set()
-            for item in records:
-                m_id = int(item.get("id"))
-                incoming_ids.add(m_id)
-                m_date = parse_date(item.get("date")) or date.today()
-                s_id = item.get("split_id")
-                if s_id and not db.session.get(Split, int(s_id)):
-                    s_id = None
-                global_debt = db.session.get(MoneyOwed, m_id)
-                if global_debt and global_debt.user_id != u_id:
-                    raise ValueError(f"Cross-user ID collision: MoneyOwed ID {m_id} belongs to user {global_debt.user_id}, cannot assign to user {u_id}")
-                if m_id in existing:
-                    debt_obj = existing[m_id]
-                    debt_obj.person = item.get("person", debt_obj.person)
-                    debt_obj.type = item.get("type", debt_obj.type)
-                    debt_obj.amount = Decimal(str(item.get("amount", 0.0)))
-                    debt_obj.date = m_date
-                    debt_obj.reason = item.get("reason", "") or ""
-                    debt_obj.note = item.get("note", "") or ""
-                    debt_obj.status = item.get("status", "Pending") or "Pending"
-                    debt_obj.split_id = int(s_id) if s_id else None
-                else:
-                    new_debt = MoneyOwed(
-                        id=m_id,
-                        user_id=u_id,
-                        person=item.get("person", "Friend"),
-                        type=item.get("type", "they_owe_me"),
-                        amount=Decimal(str(item.get("amount", 0.0))),
-                        date=m_date,
-                        reason=item.get("reason", "") or "",
-                        note=item.get("note", "") or "",
-                        status=item.get("status", "Pending") or "Pending",
-                        split_id=int(s_id) if s_id else None
-                    )
-                    db.session.add(new_debt)
-            for m_id, record in existing.items():
-                if m_id not in incoming_ids:
-                    db.session.delete(record)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            raise
-    if is_production():
+    if not is_db_active() or not u_id:
         return
-
-    filepath = get_user_storage_path("money_owed.json", user_id)
     try:
-        with open(filepath, "w", encoding="utf-8") as file:
-            json.dump(records, file, indent=4)
+        existing = {m.id: m for m in MoneyOwed.query.filter_by(user_id=u_id).all()}
+        incoming_ids = set()
+        for item in records:
+            m_id = int(item.get("id"))
+            incoming_ids.add(m_id)
+            m_date = parse_date(item.get("date")) or date.today()
+            s_id = item.get("split_id")
+            global_debt = db.session.get(MoneyOwed, m_id)
+            if global_debt and global_debt.user_id != u_id:
+                raise ValueError(f"Cross-user ID collision: MoneyOwed ID {m_id} belongs to user {global_debt.user_id}, cannot assign to user {u_id}")
+            if m_id in existing:
+                debt_obj = existing[m_id]
+                debt_obj.person = item.get("person", debt_obj.person)
+                debt_obj.type = item.get("type", debt_obj.type)
+                debt_obj.amount = Decimal(str(item.get("amount", 0.0)))
+                debt_obj.date = m_date
+                debt_obj.reason = item.get("reason", "") or ""
+                debt_obj.note = item.get("note", "") or ""
+                debt_obj.status = item.get("status", "Pending") or "Pending"
+                debt_obj.split_id = int(s_id) if s_id else None
+            else:
+                new_debt = MoneyOwed(
+                    id=m_id,
+                    user_id=u_id,
+                    person=item.get("person", "Friend"),
+                    type=item.get("type", "they_owe_me"),
+                    amount=Decimal(str(item.get("amount", 0.0))),
+                    date=m_date,
+                    reason=item.get("reason", "") or "",
+                    note=item.get("note", "") or "",
+                    status=item.get("status", "Pending") or "Pending",
+                    split_id=int(s_id) if s_id else None
+                )
+                db.session.add(new_debt)
+        for m_id, record in existing.items():
+            if m_id not in incoming_ids:
+                db.session.delete(record)
+        db.session.commit()
     except Exception:
-        pass
+        db.session.rollback()
+        raise
 
 def load_splits(user_id=None):
-    """Load bill splitting history from database or user's splits.json."""
+    """Load bill splitting history from database."""
     u_id = get_active_user_id(user_id)
-    if is_db_active():
-        if not u_id:
-            return []
-        try:
-            records = Split.query.filter_by(user_id=u_id).order_by(Split.date.desc(), Split.id.desc()).all()
-            return [s.to_dict() for s in records]
-        except Exception:
-            pass
-    if is_production():
+    if not is_db_active() or not u_id:
         return []
-
-    filepath = get_user_storage_path("splits.json", user_id)
-    try:
-        with open(filepath, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+    records = Split.query.filter_by(user_id=u_id).order_by(Split.date.desc(), Split.id.desc()).all()
+    return [s.to_dict() for s in records]
 
 def save_splits(records, user_id=None):
-    """Save bill splitting history to database and user's splits.json."""
+    """Save bill splitting history to database."""
     u_id = get_active_user_id(user_id)
-    if is_db_active() and u_id:
-        try:
-            existing = {s.id: s for s in Split.query.filter_by(user_id=u_id).all()}
-            incoming_ids = set()
-            for item in records:
-                s_id = int(item.get("id"))
-                incoming_ids.add(s_id)
-                s_date = parse_date(item.get("date")) or date.today()
-                global_split = db.session.get(Split, s_id)
-                if global_split and global_split.user_id != u_id:
-                    raise ValueError(f"Cross-user ID collision: Split ID {s_id} belongs to user {global_split.user_id}, cannot assign to user {u_id}")
-                if s_id in existing:
-                    split_obj = existing[s_id]
-                    split_obj.title = item.get("title", split_obj.title)
-                    split_obj.total_amount = Decimal(str(item.get("total_amount", 0.0)))
-                    split_obj.payer = item.get("payer", split_obj.payer)
-                    split_obj.date = s_date
-                    split_obj.split_mode = item.get("split_mode", "room")
-                    split_obj.split_type = item.get("split_type", "equal")
-                    split_obj.participants = item.get("participants", [])
-                    split_obj.breakdown = item.get("breakdown", [])
-                    split_obj.who_owes_whom = item.get("who_owes_whom", [])
-                else:
-                    new_split = Split(
-                        id=s_id,
-                        user_id=u_id,
-                        title=item.get("title", "Split Bill"),
-                        total_amount=Decimal(str(item.get("total_amount", 0.0))),
-                        payer=item.get("payer", "You"),
-                        date=s_date,
-                        split_mode=item.get("split_mode", "room"),
-                        split_type=item.get("split_type", "equal"),
-                        participants=item.get("participants", []),
-                        breakdown=item.get("breakdown", []),
-                        who_owes_whom=item.get("who_owes_whom", [])
-                    )
-                    db.session.add(new_split)
-            for s_id, record in existing.items():
-                if s_id not in incoming_ids:
-                    db.session.delete(record)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            raise
-    if is_production():
+    if not is_db_active() or not u_id:
         return
-
-    filepath = get_user_storage_path("splits.json", user_id)
     try:
-        with open(filepath, "w", encoding="utf-8") as file:
-            json.dump(records, file, indent=4)
+        existing = {s.id: s for s in Split.query.filter_by(user_id=u_id).all()}
+        incoming_ids = set()
+        for item in records:
+            s_id = int(item.get("id"))
+            incoming_ids.add(s_id)
+            s_date = parse_date(item.get("date")) or date.today()
+            global_split = db.session.get(Split, s_id)
+            if global_split and global_split.user_id != u_id:
+                raise ValueError(f"Cross-user ID collision: Split ID {s_id} belongs to user {global_split.user_id}, cannot assign to user {u_id}")
+            if s_id in existing:
+                split_obj = existing[s_id]
+                split_obj.title = item.get("title", split_obj.title)
+                split_obj.total_amount = Decimal(str(item.get("total_amount", 0.0)))
+                split_obj.payer = item.get("payer", split_obj.payer)
+                split_obj.date = s_date
+                split_obj.split_mode = item.get("split_mode", "room")
+                split_obj.split_type = item.get("split_type", "equal")
+                split_obj.participants = item.get("participants", [])
+                split_obj.breakdown = item.get("breakdown", [])
+                split_obj.who_owes_whom = item.get("who_owes_whom", [])
+            else:
+                new_split = Split(
+                    id=s_id,
+                    user_id=u_id,
+                    title=item.get("title", "Split Bill"),
+                    total_amount=Decimal(str(item.get("total_amount", 0.0))),
+                    payer=item.get("payer", "You"),
+                    date=s_date,
+                    split_mode=item.get("split_mode", "room"),
+                    split_type=item.get("split_type", "equal"),
+                    participants=item.get("participants", []),
+                    breakdown=item.get("breakdown", []),
+                    who_owes_whom=item.get("who_owes_whom", [])
+                )
+                db.session.add(new_split)
+        for s_id, record in existing.items():
+            if s_id not in incoming_ids:
+                db.session.delete(record)
+        db.session.commit()
     except Exception:
-        pass
+        db.session.rollback()
+        raise
 
 def load_rooms(user_id=None):
-    """Load rooms and roommate rosters from database or user's rooms.json."""
+    """Load rooms and roommate rosters from database."""
     u_id = get_active_user_id(user_id)
-    if is_db_active():
-        if not u_id:
-            return []
-        try:
-            records = Room.query.filter_by(user_id=u_id).all()
-            return [r.to_dict() for r in records]
-        except Exception:
-            pass
-    if is_production():
+    if not is_db_active() or not u_id:
         return []
-
-    filepath = get_user_storage_path("rooms.json", user_id)
-    try:
-        with open(filepath, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+    records = Room.query.filter_by(user_id=u_id).all()
+    return [r.to_dict() for r in records]
 
 def save_rooms(rooms, user_id=None):
-    """Save rooms roster to database and user's rooms.json."""
+    """Save rooms roster to database."""
     u_id = get_active_user_id(user_id)
-    if is_db_active() and u_id:
-        try:
-            existing = {r.id: r for r in Room.query.filter_by(user_id=u_id).all()}
-            incoming_ids = set()
-            for item in rooms:
-                r_id = int(item.get("id"))
-                incoming_ids.add(r_id)
-                global_room = db.session.get(Room, r_id)
-                if global_room and global_room.user_id != u_id:
-                    raise ValueError(f"Cross-user ID collision: Room ID {r_id} belongs to user {global_room.user_id}, cannot assign to user {u_id}")
-                if r_id in existing:
-                    room_obj = existing[r_id]
-                    room_obj.name = item.get("name", room_obj.name)
-                    room_obj.members = item.get("members", [])
-                else:
-                    new_room = Room(
-                        id=r_id,
-                        user_id=u_id,
-                        name=item.get("name", "Room"),
-                        members=item.get("members", [])
-                    )
-                    db.session.add(new_room)
-            for r_id, record in existing.items():
-                if r_id not in incoming_ids:
-                    db.session.delete(record)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            raise
-    if is_production():
+    if not is_db_active() or not u_id:
         return
-
-    filepath = get_user_storage_path("rooms.json", user_id)
     try:
-        with open(filepath, "w", encoding="utf-8") as file:
-            json.dump(rooms, file, indent=4)
+        existing = {r.id: r for r in Room.query.filter_by(user_id=u_id).all()}
+        incoming_ids = set()
+        for item in rooms:
+            r_id = int(item.get("id"))
+            incoming_ids.add(r_id)
+            global_room = db.session.get(Room, r_id)
+            if global_room and global_room.user_id != u_id:
+                raise ValueError(f"Cross-user ID collision: Room ID {r_id} belongs to user {global_room.user_id}, cannot assign to user {u_id}")
+            if r_id in existing:
+                room_obj = existing[r_id]
+                room_obj.name = item.get("name", room_obj.name)
+                room_obj.members = item.get("members", [])
+            else:
+                new_room = Room(
+                    id=r_id,
+                    user_id=u_id,
+                    name=item.get("name", "Room"),
+                    members=item.get("members", [])
+                )
+                db.session.add(new_room)
+        for r_id, record in existing.items():
+            if r_id not in incoming_ids:
+                db.session.delete(record)
+        db.session.commit()
     except Exception:
-        pass
+        db.session.rollback()
+        raise
 
 
 # -------------------------------------------------------------

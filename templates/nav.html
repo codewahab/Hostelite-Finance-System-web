@@ -2,13 +2,15 @@
     <div class="nav-container">
         <a href="/" class="nav-brand" aria-label="Hostelite Finance Home">
             <span class="brand-logo-wrap">
-                <img src="{{ url_for('static', filename='images/hostelite-logo.png') }}"
-                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='images/hostelite-logo.svg') }}';"
+                <img src="{{ url_for('static', filename='images/hostelite-logo.svg') }}"
                      alt="Hostelite Brand Logo"
                      class="brand-logo-img"
-                     width="28" height="28">
+                     width="30" height="30">
             </span>
-            <span class="brand-text">Hostelite <span class="brand-suffix">Finance</span></span>
+            <span class="brand-text-wrap">
+                <span class="brand-primary">Hostelite</span>
+                <span class="brand-badge">Finance</span>
+            </span>
         </a>
 
         <!-- Mobile Navigation Hamburger Toggle -->
@@ -29,14 +31,39 @@
             </nav>
             <div class="nav-user-actions">
                 {% if session.get('user_id') %}
-                    <span class="user-greeting">
-                        <span class="user-avatar-badge">
-                            {{ session.get('display_name', session.get('username', 'U'))[0]|upper }}
-                        </span>
-                        <strong class="user-name">{{ session.get('display_name', session.get('username')) }}</strong>
-                    </span>
-                    <a href="/backup-data" class="btn btn-sm btn-outline nav-action-btn" title="Download backup of your financial data">Backup</a>
-                    <a href="/logout" class="btn btn-sm btn-secondary nav-action-btn">Logout</a>
+                    <!-- Integrated Profile Dropdown Control -->
+                    <div class="profile-dropdown-wrap" id="profile-dropdown-wrap">
+                        <button type="button" 
+                                class="profile-trigger-btn" 
+                                id="profile-dropdown-trigger" 
+                                aria-haspopup="true" 
+                                aria-expanded="false" 
+                                aria-controls="profile-dropdown-menu" 
+                                aria-label="User profile menu">
+                            <span class="user-avatar-badge">
+                                {{ session.get('display_name', session.get('username', 'U'))[0]|upper }}
+                            </span>
+                            <span class="user-name">{{ session.get('display_name', session.get('username')) }}</span>
+                            <svg class="dropdown-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                                <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="profile-dropdown-menu" id="profile-dropdown-menu" role="menu" aria-labelledby="profile-dropdown-trigger" hidden>
+                            <div class="profile-dropdown-header">
+                                <span class="profile-header-label">Signed in as</span>
+                                <strong class="profile-header-name">{{ session.get('display_name', session.get('username')) }}</strong>
+                            </div>
+                            <div class="profile-dropdown-divider"></div>
+                            <a href="/logout" class="profile-dropdown-item profile-dropdown-logout" role="menuitem">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                                    <polyline points="16 17 21 12 16 7"></polyline>
+                                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                                </svg>
+                                <span>Logout</span>
+                            </a>
+                        </div>
+                    </div>
                 {% else %}
                     <a href="/login" class="nav-link nav-login-link">Login</a>
                     <a href="/register" class="btn btn-sm btn-primary nav-action-btn">Sign Up</a>
@@ -247,8 +274,56 @@
         });
     }
 
+    // Accessible Profile Dropdown Toggle Handler
+    function initProfileDropdown() {
+        var wrap = document.getElementById('profile-dropdown-wrap');
+        var trigger = document.getElementById('profile-dropdown-trigger');
+        var menu = document.getElementById('profile-dropdown-menu');
+        if (!wrap || !trigger || !menu) return;
+
+        function openMenu() {
+            trigger.setAttribute('aria-expanded', 'true');
+            menu.removeAttribute('hidden');
+        }
+
+        function closeMenu() {
+            trigger.setAttribute('aria-expanded', 'false');
+            menu.setAttribute('hidden', '');
+        }
+
+        function toggleMenu() {
+            var isExpanded = trigger.getAttribute('aria-expanded') === 'true';
+            if (isExpanded) {
+                closeMenu();
+            } else {
+                openMenu();
+            }
+        }
+
+        trigger.addEventListener('click', function(e) {
+            e.stopPropagation();
+            toggleMenu();
+        });
+
+        // Close on outside click
+        document.addEventListener('click', function(e) {
+            if (!wrap.contains(e.target)) {
+                closeMenu();
+            }
+        });
+
+        // Close on Escape key and return focus to trigger
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && trigger.getAttribute('aria-expanded') === 'true') {
+                closeMenu();
+                trigger.focus();
+            }
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         initToasts();
         initMobileNav();
+        initProfileDropdown();
     });
 </script>

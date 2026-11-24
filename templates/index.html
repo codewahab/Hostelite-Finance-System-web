@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hostelite Finance - Dashboard</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/hostelite-logo.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/hostelite-logo.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
@@ -46,7 +46,7 @@
                                 <span class="stat-hero-unit">/ day</span>
                             {% endif %}
                         {% else %}
-                            <span class="stat-hero text-muted">Rs. 0</span>
+                            <span class="stat-hero">Rs. 0</span>
                             <span class="stat-hero-unit">/ day</span>
                         {% endif %}
                     </div>
@@ -88,27 +88,8 @@
                 </div>
             </div>
 
-            <!-- Supporting Values: Budget Remaining vs Available Cash -->
+            <!-- Supporting Value: Available Cash -->
             <div class="budget-supporting-grid">
-                <div class="supporting-metric-card">
-                    <div class="supporting-metric-header">
-                        <span class="supporting-label">Budget Remaining</span>
-                        {% if allowance > 0 %}
-                            {% if is_over_budget %}
-                                <span class="badge badge-you-owe">Over Budget</span>
-                            {% else %}
-                                <span class="badge badge-settled">{{ (100 - percentage_spent)|round(1) }}% left</span>
-                            {% endif %}
-                        {% endif %}
-                    </div>
-                    <p class="supporting-value {% if is_over_budget %}text-danger{% elif allowance == 0 %}text-muted{% endif %}">
-                        {{ remaining | rupees }}
-                    </p>
-                    <span class="supporting-hint">
-                        Total allowance minus cycle expenses
-                    </span>
-                </div>
-
                 <div class="supporting-metric-card">
                     <div class="supporting-metric-header">
                         <span class="supporting-label">Available Cash</span>
